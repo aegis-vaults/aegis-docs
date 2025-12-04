@@ -1,0 +1,222 @@
+# Custom Framework Integration
+
+Build custom integrations for any AI framework or agent system.
+
+## General Pattern
+
+All integrations follow this pattern:
+
+1. Initialize Aegis client
+2. Set agent wallet
+3. Define tool/function schema
+4. Implement execution handler
+5. Return results to framework
+
+## Basic Tool Structure
+
+```typescript
+interface AegisTool {
+  name: string;
+  description: string;
+  parameters: {
+    destination: string;
+    amount: number;
+    purpose?: string;
+  };
+  execute: (params) => Promise<Result>;
+}
+```
+
+## Implementation Template
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair } from '@solana/web3.js';
+
+class CustomAegisIntegration {
+  private aegis: AegisClient;
+
+  constructor(agentKeypair: Keypair) {
+    this.aegis = new AegisClient({
+      cluster: 'devnet',
+      guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+    });
+
+    this.aegis.setWallet(agentKeypair);
+  }
+
+  // Define available tools
+  getTools() {
+    return [
+      {
+        name: 'aegis_transfer',
+        description: 'Transfer SOL from vault',
+        schema: {
+          destination: 'string',
+          amount_sol: 'number',
+          purpose: 'string?',
+        },
+        handler: this.transfer.bind(this),
+      },
+      {
+        name: 'aegis_get_balance',
+        description: 'Get vault balance',
+        schema: {},
+        handler: this.getBalance.bind(this),
+      },
+    ];
+  }
+
+  // Transfer handler
+  async transfer(params: {
+    destination: string;
+    amount_sol: number;
+    purpose?: string;
+  }) {
+    try {
+      const signature = await this.aegis.executeAgent({
+        vault: process.env.VAULT_ADDRESS!,
+        destination: params.destination,
+        amount: Math.floor(params.amount_sol * 1e9),
+        vaultNonce: process.env.VAULT_NONCE!,
+        purpose: params.purpose,
+      });
+
+      return {
+        success: true,
+        signature,
+        message: `Sent ${params.amount_sol} SOL to ${params.destination}`,
+      };
+    } catch (error: any) {
+      if (error.overrideRequested) {
+        return {
+          success: false,
+          blocked: true,
+          reason: error.message,
+          blinkUrl: error.blinkUrl,
+          message: 'Transaction blocked. Vault owner notified for approval.',
+        };
+      }
+
+      return {
+        success: false,
+        error: error.message,
+      };
+    }
+  }
+
+  // Balance handler
+  async getBalance() {
+    const balance = await this.aegis.getVaultBalance(process.env.VAULT_ADDRESS!);
+    const vault = await this.aegis.getVault(process.env.VAULT_ADDRESS!);
+
+    return {
+      balance_sol: balance / 1e9,
+      daily_limit_sol: vault.dailyLimit.toNumber() / 1e9,
+      spent_today_sol: vault.spentToday.toNumber() / 1e9,
+      remaining_sol: (vault.dailyLimit.toNumber() - vault.spentToday.toNumber()) / 1e9,
+    };
+  }
+}
+
+// Usage
+const integration = new CustomAegisIntegration(agentKeypair);
+const tools = integration.getTools();
+
+// Execute tool
+const result = await tools[0].handler({
+  destination: '7xKX...',
+  amount_sol: 0.1,
+});
+```
+
+## Framework-Specific Adapters
+
+### REST API
+
+```typescript
+import express from 'express';
+
+const app = express();
+const aegis = new CustomAegisIntegration(agentKeypair);
+
+app.post('/api/transfer', async (req, res) => {
+  const { destination, amount_sol, purpose } = req.body;
+
+  const result = await aegis.transfer({ destination, amount_sol, purpose });
+
+  res.json(result);
+});
+
+app.get('/api/balance', async (req, res) => {
+  const result = await aegis.getBalance();
+  res.json(result);
+});
+
+app.listen(3000);
+```
+
+### GraphQL
+
+```typescript
+import { GraphQLObjectType, GraphQLFloat, GraphQLString } from 'graphql';
+
+const TransferType = new GraphQLObjectType({
+  name: 'Transfer',
+  fields: {
+    signature: { type: GraphQLString },
+    success: { type: GraphQLBoolean },
+  },
+});
+
+const Mutation = new GraphQLObjectType({
+  name: 'Mutation',
+  fields: {
+    transfer: {
+      type: TransferType,
+      args: {
+        destination: { type: GraphQLString },
+        amount: { type: GraphQLFloat },
+      },
+      resolve: async (_, { destination, amount }) => {
+        return await aegis.transfer({ destination, amount_sol: amount });
+      },
+    },
+  },
+});
+```
+
+### WebSocket
+
+```typescript
+import { WebSocketServer } from 'ws';
+
+const wss = new WebSocketServer({ port: 8080 });
+
+wss.on('connection', (ws) => {
+  ws.on('message', async (data) => {
+    const { tool, params } = JSON.parse(data.toString());
+
+    if (tool === 'transfer') {
+      const result = await aegis.transfer(params);
+      ws.send(JSON.stringify(result));
+    }
+  });
+});
+```
+
+## Best Practices
+
+1. **Validate Inputs** - Always validate parameters
+2. **Handle Errors** - Catch all error types
+3. **Return Structured Data** - Consistent response format
+4. **Log Activity** - Track all tool executions
+5. **Security** - Never expose private keys
+6. **Rate Limiting** - Prevent abuse
+7. **Timeouts** - Set reasonable timeouts
+
+## Next Steps
+
+- [OpenAI Integration](/integrations/openai) - See OpenAI example
+- [LangChain Integration](/integrations/langchain) - See LangChain example
+- [Code Examples](/sdk/examples) - More examples

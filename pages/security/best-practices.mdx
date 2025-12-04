@@ -1,0 +1,259 @@
+# Security Best Practices
+
+Production-ready security guidelines for Aegis deployments.
+
+## Vault Configuration
+
+### Conservative Limits
+
+Start with conservative daily limits:
+
+```typescript
+// Bad: Unlimited spending
+dailyLimit: Number.MAX_SAFE_INTEGER
+
+// Good: Reasonable limit
+dailyLimit: 1 * LAMPORTS_PER_SOL  // 1 SOL per day
+```
+
+### Whitelist Management
+
+Only whitelist trusted addresses:
+
+```typescript
+// Verify address before whitelisting
+const isValidAddress = await verifyAddress(address);
+if (isValidAddress) {
+  await client.addToWhitelist(vault, nonce, address);
+}
+```
+
+### Regular Audits
+
+Review vault activity regularly:
+
+```typescript
+const history = await client.getTransactionHistory({
+  vault: vaultAddress,
+  limit: 100,
+});
+
+// Review for suspicious patterns
+const suspicious = history.filter(tx =>
+  tx.amount > THRESHOLD || !isKnownDestination(tx.destination)
+);
+```
+
+## Key Management
+
+### Environment Variables
+
+```bash
+# .env file
+AGENT_SECRET_KEY=[1,2,3,...]  # Keep secure!
+VAULT_ADDRESS=your_vault
+VAULT_NONCE=your_nonce
+```
+
+### Key Rotation
+
+Rotate agent keys every 30-90 days:
+
+```typescript
+async function rotateAgentKey() {
+  const newKeypair = Keypair.generate();
+
+  // Update on-chain
+  await client.updateAgentSigner(
+    vaultAddress,
+    vaultNonce,
+    newKeypair.publicKey.toBase58()
+  );
+
+  // Update storage
+  await storeNewKey(newKeypair);
+}
+```
+
+### Hardware Wallets
+
+Use hardware wallets for vault owner keys:
+
+```typescript
+import { WalletAdapter } from '@solana/wallet-adapter-base';
+
+// Use Ledger/Phantom for owner operations
+const ownerWallet = useWallet(); // React hook
+client.setWallet(ownerWallet);
+```
+
+## Monitoring
+
+### Real-Time Alerts
+
+```typescript
+const monitor = setInterval(async () => {
+  const vault = await client.getVault(vaultAddress);
+
+  // Low balance alert
+  const balance = await client.getVaultBalance(vaultAddress);
+  if (balance < 0.1 * LAMPORTS_PER_SOL) {
+    await alert('LOW_BALANCE', { balance });
+  }
+
+  // High utilization alert
+  const utilization = vault.spentToday.toNumber() / vault.dailyLimit.toNumber();
+  if (utilization > 0.8) {
+    await alert('HIGH_UTILIZATION', { utilization });
+  }
+
+  // Pause alert
+  if (vault.paused) {
+    await alert('VAULT_PAUSED', { vault: vaultAddress });
+  }
+}, 60000); // Every minute
+```
+
+### Logging
+
+Use structured logging:
+
+```typescript
+import pino from 'pino';
+
+const logger = pino({
+  level: 'info',
+  redact: ['agentSecretKey'], // Never log secrets!
+});
+
+logger.info({
+  event: 'transaction_executed',
+  vault: vaultAddress,
+  destination: destination,
+  amount: amount,
+  signature: signature,
+});
+```
+
+## Network Security
+
+### Rate Limiting
+
+```typescript
+import rateLimit from 'express-rate-limit';
+
+const limiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // Max 100 requests per minute
+});
+
+app.use('/api/', limiter);
+```
+
+### Input Validation
+
+```typescript
+import { z } from 'zod';
+
+const transferSchema = z.object({
+  destination: z.string().length(44), // Base58 pubkey
+  amount: z.number().positive().max(1000 * LAMPORTS_PER_SOL),
+  purpose: z.string().max(200).optional(),
+});
+
+// Validate before executing
+const validated = transferSchema.parse(input);
+```
+
+## Incident Response
+
+### Emergency Pause
+
+```typescript
+async function emergencyPause() {
+  try {
+    await client.pauseVault(vaultAddress, vaultNonce);
+    logger.warn('EMERGENCY: Vault paused');
+    await notifyTeam('Vault paused - investigate immediately');
+  } catch (error) {
+    logger.error('Failed to pause vault', error);
+  }
+}
+```
+
+### Backup Plan
+
+Maintain backup access:
+
+```typescript
+// Store recovery phrase securely
+const recoveryPhrase = process.env.RECOVERY_PHRASE;
+
+// Keep backup owner keypair
+const backupOwner = Keypair.fromSecretKey(
+  // Stored in secure vault (1Password, AWS Secrets Manager)
+);
+```
+
+## Compliance
+
+### Transaction Logging
+
+Log all transactions for audit:
+
+```typescript
+interface AuditLog {
+  timestamp: Date;
+  vault: string;
+  action: string;
+  signer: string;
+  amount?: number;
+  destination?: string;
+  signature?: string;
+  result: 'success' | 'blocked' | 'failed';
+}
+
+await db.auditLogs.create({ data: auditLog });
+```
+
+### Access Control
+
+Implement role-based access:
+
+```typescript
+enum Role {
+  OWNER = 'owner',
+  ADMIN = 'admin',
+  AGENT = 'agent',
+  VIEWER = 'viewer',
+}
+
+function requireRole(role: Role) {
+  return (req, res, next) => {
+    if (!hasRole(req.user, role)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    next();
+  };
+}
+
+app.post('/api/vaults', requireRole(Role.OWNER), createVault);
+```
+
+## Production Checklist
+
+Before deploying to production:
+
+- ✅ All keys stored securely
+- ✅ Daily limits configured conservatively
+- ✅ Whitelist populated with verified addresses
+- ✅ Monitoring and alerting set up
+- ✅ Logging configured (no sensitive data)
+- ✅ Rate limiting enabled
+- ✅ Input validation on all endpoints
+- ✅ Error handling implemented
+- ✅ Backup access configured
+- ✅ Incident response plan documented
+- ✅ Tested on devnet thoroughly
+- ✅ Code audited
+- ✅ Team trained on emergency procedures

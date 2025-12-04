@@ -1,0 +1,59 @@
+# SDK Installation
+
+Complete guide to installing and configuring the Aegis SDK in your project.
+
+## Installation
+
+Install the SDK and required dependencies:
+
+```bash
+npm install @aegis-vaults/sdk @solana/web3.js @coral-xyz/anchor bn.js
+```
+
+## Quick Start
+
+Create a simple script to test the installation:
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+
+const client = new AegisClient({
+  cluster: 'devnet',
+});
+
+console.log('Program ID:', client.programId.toBase58());
+// ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ
+```
+
+## Configuration Options
+
+The `AegisClient` constructor accepts comprehensive configuration:
+
+```typescript
+const client = new AegisClient({
+  // Network Configuration
+  cluster: 'devnet',                  // 'devnet' | 'mainnet-beta' | 'testnet'
+  connection: customConnection,       // Or provide custom Connection
+  programId: 'PROGRAM_ID',            // Default: devnet program
+
+  // Guardian API
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+
+  // Transaction Settings
+  commitment: 'confirmed',            // 'processed' | 'confirmed' | 'finalized'
+  confirmTimeout: 60000,              // Milliseconds (default: 60s)
+  autoRetry: true,                    // Auto-retry failed transactions
+  maxRetries: 3,                      // Max retry attempts
+
+  // Override Behavior
+  autoRequestOverride: true,          // Auto-notify Guardian on blocked tx
+});
+```
+
+See [Installation Guide](/getting-started/installation) for detailed environment setup.
+
+## Next Steps
+
+- [API Reference](/sdk/api-reference) - Complete method documentation
+- [Code Examples](/sdk/examples) - Real-world usage patterns
+- [Error Handling](/sdk/error-handling) - Handle errors gracefully

@@ -1,0 +1,138 @@
+# Build a Trading Bot
+
+Build an autonomous trading bot with Aegis vault controls.
+
+## Overview
+
+Create a trading bot that:
+- Executes trades on Jupiter
+- Respects daily trading limits
+- Only trades whitelisted tokens
+- Requests approval for large trades
+
+## Step 1: Create Trading Vault
+
+```typescript
+const vault = await client.createVault({
+  name: 'Trading Bot Vault',
+  agentSigner: tradingBotKeypair.publicKey.toBase58(),
+  dailyLimit: 10 * LAMPORTS_PER_SOL, // 10 SOL per day
+});
+
+// Whitelist Jupiter program
+await client.addToWhitelist(
+  vault.vaultAddress,
+  vault.nonce,
+  'JUP4Fb2cqiRUcaTHdrPC8h2gNsA2ETXiPDD33WcGuJB' // Jupiter v6
+);
+```
+
+## Step 2: Implement Trading Logic
+
+```typescript
+class TradingBot {
+  private aegis: AegisClient;
+  private vaultAddress: string;
+  private vaultNonce: string;
+
+  async executeTrade(inputToken: string, outputToken: string, amount: number) {
+    // 1. Get Jupiter quote
+    const quote = await this.getJupiterQuote(inputToken, outputToken, amount);
+
+    // 2. Pre-flight check
+    const canTrade = await this.canExecuteTrade(quote.outAmount);
+    if (!canTrade) {
+      console.log('Cannot trade: daily limit reached');
+      return;
+    }
+
+    // 3. Execute swap via Aegis
+    try {
+      const signature = await this.aegis.executeAgent({
+        vault: this.vaultAddress,
+        destination: quote.jupiterProgram,
+        amount: quote.inAmount,
+        vaultNonce: this.vaultNonce,
+        purpose: `Swap ${inputToken} to ${outputToken}`,
+      });
+
+      console.log('Trade executed:', signature);
+    } catch (error: any) {
+      if (error.overrideRequested) {
+        await this.notifyOwner({
+          type: 'large_trade',
+          blinkUrl: error.blinkUrl,
+        });
+      }
+    }
+  }
+
+  private async canExecuteTrade(amount: number): Promise<boolean> {
+    const vault = await this.aegis.getVault(this.vaultAddress);
+    const remaining = vault.dailyLimit.sub(vault.spentToday);
+    return remaining.gte(new BN(amount));
+  }
+}
+```
+
+## Step 3: Add Market Analysis
+
+```typescript
+class SmartTradingBot extends TradingBot {
+  async analyzeAndTrade() {
+    // Analyze market conditions
+    const analysis = await this.analyzeMarket();
+
+    if (analysis.shouldTrade) {
+      await this.executeTrade(
+        analysis.inputToken,
+        analysis.outputToken,
+        analysis.amount
+      );
+    }
+  }
+
+  private async analyzeMarket() {
+    // Your market analysis logic
+    return {
+      shouldTrade: true,
+      inputToken: 'SOL',
+      outputToken: 'USDC',
+      amount: 1_000_000_000, // 1 SOL
+    };
+  }
+}
+```
+
+## Step 4: Add Safety Checks
+
+```typescript
+async executeTrade(params: TradeParams) {
+  // Check vault status
+  const vault = await this.aegis.getVault(this.vaultAddress);
+
+  if (vault.paused) {
+    throw new Error('Vault is paused');
+  }
+
+  // Check balance
+  const balance = await this.aegis.getVaultBalance(this.vaultAddress);
+  if (balance < params.amount) {
+    throw new Error('Insufficient balance');
+  }
+
+  // Check daily limit
+  if (vault.spentToday.add(new BN(params.amount)).gt(vault.dailyLimit)) {
+    console.log('Would exceed daily limit - requesting override');
+    // Request override for large trade
+  }
+
+  // Execute trade
+  await this.executeTrade(params);
+}
+```
+
+## Next Steps
+
+- [DeFi Agent](/tutorials/defi-agent) - Build DeFi automation
+- [Security Best Practices](/security/best-practices) - Secure your bot

@@ -1,0 +1,352 @@
+# Performance Optimization
+
+Optimize Aegis for high-throughput production deployments.
+
+## Connection Pooling
+
+### RPC Connection Pooling
+
+Use connection pooling for better performance:
+
+```typescript
+import { Connection } from '@solana/web3.js';
+
+class ConnectionPool {
+  private connections: Connection[] = [];
+  private currentIndex = 0;
+
+  constructor(rpcUrls: string[], poolSize: number = 5) {
+    for (let i = 0; i < poolSize; i++) {
+      const url = rpcUrls[i % rpcUrls.length];
+      this.connections.push(new Connection(url, 'confirmed'));
+    }
+  }
+
+  getConnection(): Connection {
+    const connection = this.connections[this.currentIndex];
+    this.currentIndex = (this.currentIndex + 1) % this.connections.length;
+    return connection;
+  }
+}
+
+// Usage
+const pool = new ConnectionPool([
+  'https://rpc1.helius.xyz',
+  'https://rpc2.helius.xyz',
+  'https://rpc3.helius.xyz',
+], 10);
+
+const client = new AegisClient({
+  connection: pool.getConnection(),
+});
+```
+
+### Client Pooling
+
+Reuse Aegis clients:
+
+```typescript
+class AegisClientPool {
+  private clients: Map<string, AegisClient> = new Map();
+
+  getClient(vaultAddress: string): AegisClient {
+    if (!this.clients.has(vaultAddress)) {
+      const client = new AegisClient({...});
+      this.clients.set(vaultAddress, client);
+    }
+
+    return this.clients.get(vaultAddress)!;
+  }
+}
+```
+
+## Caching
+
+### Vault Data Caching
+
+Cache vault configurations:
+
+```typescript
+import NodeCache from 'node-cache';
+
+class CachedVaultManager {
+  private cache = new NodeCache({ stdTTL: 300 }); // 5 min TTL
+
+  async getVault(address: string): Promise<VaultConfig> {
+    const cached = this.cache.get<VaultConfig>(address);
+    if (cached) return cached;
+
+    const vault = await this.client.getVault(address);
+    this.cache.set(address, vault);
+
+    return vault;
+  }
+
+  invalidate(address: string) {
+    this.cache.del(address);
+  }
+}
+```
+
+### Balance Caching
+
+```typescript
+class BalanceCache {
+  private cache = new Map<string, { balance: number; timestamp: number }>();
+  private ttl = 10000; // 10 seconds
+
+  async getBalance(vaultAddress: string): Promise<number> {
+    const cached = this.cache.get(vaultAddress);
+
+    if (cached && Date.now() - cached.timestamp < this.ttl) {
+      return cached.balance;
+    }
+
+    const balance = await this.client.getVaultBalance(vaultAddress);
+
+    this.cache.set(vaultAddress, {
+      balance,
+      timestamp: Date.now(),
+    });
+
+    return balance;
+  }
+}
+```
+
+## Batch Operations
+
+### Parallel Reads
+
+Read multiple vaults in parallel:
+
+```typescript
+async function getMultipleVaults(addresses: string[]) {
+  const vaults = await Promise.all(
+    addresses.map(addr => client.getVault(addr))
+  );
+
+  return vaults;
+}
+```
+
+### Rate-Limited Batch
+
+Process transactions with rate limiting:
+
+```typescript
+import pLimit from 'p-limit';
+
+class BatchExecutor {
+  private limit = pLimit(5); // Max 5 concurrent
+
+  async executeBatch(transactions: ExecuteAgentOptions[]) {
+    const results = await Promise.allSettled(
+      transactions.map(tx =>
+        this.limit(() => this.client.executeAgent(tx))
+      )
+    );
+
+    return results.map((result, i) => ({
+      transaction: transactions[i],
+      status: result.status,
+      signature: result.status === 'fulfilled' ? result.value : undefined,
+      error: result.status === 'rejected' ? result.reason : undefined,
+    }));
+  }
+}
+```
+
+## Optimized RPC Configuration
+
+### Dedicated RPC
+
+Use dedicated RPC endpoints:
+
+```typescript
+const client = new AegisClient({
+  connection: new Connection(
+    'https://your-dedicated-rpc.helius.xyz',
+    {
+      commitment: 'confirmed',
+      confirmTransactionInitialTimeout: 60000,
+      wsEndpoint: 'wss://your-dedicated-rpc.helius.xyz',
+    }
+  ),
+});
+```
+
+### Regional RPC
+
+Use geographically close RPC:
+
+```typescript
+const getRPCByRegion = () => {
+  const region = process.env.AWS_REGION;
+
+  const rpcEndpoints = {
+    'us-east-1': 'https://us-east.rpc.helius.xyz',
+    'eu-west-1': 'https://eu-west.rpc.helius.xyz',
+    'ap-southeast-1': 'https://ap-southeast.rpc.helius.xyz',
+  };
+
+  return rpcEndpoints[region] || rpcEndpoints['us-east-1'];
+};
+```
+
+## Database Optimization
+
+### Indexed Queries
+
+Optimize database queries:
+
+```prisma
+model Transaction {
+  id          String   @id @default(uuid())
+  vault       String   // Add index
+  destination String   // Add index
+  timestamp   DateTime @default(now()) // Add index
+
+  @@index([vault, timestamp])
+  @@index([destination])
+}
+```
+
+### Pagination
+
+Implement cursor-based pagination:
+
+```typescript
+async function getTransactionHistory(vault: string, cursor?: string, limit = 50) {
+  const transactions = await db.transaction.findMany({
+    where: {
+      vault,
+      ...(cursor && { id: { lt: cursor } }),
+    },
+    take: limit,
+    orderBy: { timestamp: 'desc' },
+  });
+
+  return {
+    transactions,
+    nextCursor: transactions[transactions.length - 1]?.id,
+  };
+}
+```
+
+## Monitoring Performance
+
+### Metrics Collection
+
+```typescript
+import { Histogram } from 'prom-client';
+
+const txDuration = new Histogram({
+  name: 'aegis_transaction_duration_seconds',
+  help: 'Transaction execution duration',
+  buckets: [0.1, 0.5, 1, 2, 5, 10],
+});
+
+async function executeWithMetrics(params: ExecuteAgentOptions) {
+  const timer = txDuration.startTimer();
+
+  try {
+    const signature = await client.executeAgent(params);
+    return signature;
+  } finally {
+    timer();
+  }
+}
+```
+
+### Performance Logging
+
+```typescript
+async function executeWithPerfLog(params: ExecuteAgentOptions) {
+  const start = Date.now();
+
+  try {
+    const signature = await client.executeAgent(params);
+
+    logger.info({
+      event: 'transaction_executed',
+      duration_ms: Date.now() - start,
+      vault: params.vault,
+      amount: params.amount,
+    });
+
+    return signature;
+  } catch (error) {
+    logger.error({
+      event: 'transaction_failed',
+      duration_ms: Date.now() - start,
+      error: error.message,
+    });
+
+    throw error;
+  }
+}
+```
+
+## Scaling Strategies
+
+### Horizontal Scaling
+
+Run multiple agent instances:
+
+```typescript
+// Instance 1
+const agent1 = new TradingBot({
+  vaultAddress: VAULT_1,
+  // ...
+});
+
+// Instance 2
+const agent2 = new TradingBot({
+  vaultAddress: VAULT_2,
+  // ...
+});
+
+// Load balancer distributes requests
+```
+
+### Queue-Based Processing
+
+Use queues for high throughput:
+
+```typescript
+import Bull from 'bull';
+
+const transactionQueue = new Bull('transactions', {
+  redis: { host: 'localhost', port: 6379 },
+});
+
+// Add to queue
+transactionQueue.add('execute', {
+  vault: vaultAddress,
+  destination: recipient,
+  amount: 10_000_000,
+});
+
+// Process queue
+transactionQueue.process('execute', async (job) => {
+  return await client.executeAgent(job.data);
+});
+```
+
+## Benchmarks
+
+Typical performance on dedicated RPC:
+
+| Operation | Avg Time | P95 | P99 |
+|-----------|----------|-----|-----|
+| `getVault` | 150ms | 300ms | 500ms |
+| `executeAgent` | 2s | 4s | 6s |
+| `getVaultBalance` | 100ms | 200ms | 300ms |
+| `getTransactionHistory` | 50ms | 100ms | 150ms |
+
+## Next Steps
+
+- [Custom Policies](/advanced/custom-policies) - Add custom logic
+- [Event-Driven](/advanced/event-driven) - Build reactive systems
+- [Best Practices](/sdk/best-practices) - Production tips

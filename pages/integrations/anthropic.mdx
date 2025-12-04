@@ -1,0 +1,203 @@
+# Anthropic Claude Integration
+
+Integrate Aegis vaults with Anthropic Claude using tool use (function calling).
+
+## Installation
+
+```bash
+npm install @anthropic-ai/sdk @aegis-vaults/sdk @solana/web3.js
+```
+
+## Setup
+
+```typescript
+import Anthropic from '@anthropic-ai/sdk';
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair } from '@solana/web3.js';
+
+// Initialize Claude
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+// Initialize Aegis
+const aegis = new AegisClient({
+  cluster: 'devnet',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+
+const agentKeypair = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(process.env.AGENT_SECRET_KEY!))
+);
+aegis.setWallet(agentKeypair);
+```
+
+## Define Tools
+
+```typescript
+const tools = [
+  {
+    name: 'aegis_transfer',
+    description: 'Transfer SOL from the Aegis vault to a destination address',
+    input_schema: {
+      type: 'object',
+      properties: {
+        destination: {
+          type: 'string',
+          description: 'Recipient Solana address (base58 string)',
+        },
+        amount_sol: {
+          type: 'number',
+          description: 'Amount to send in SOL (e.g., 0.1 for 0.1 SOL)',
+        },
+        purpose: {
+          type: 'string',
+          description: 'Optional description of the payment',
+        },
+      },
+      required: ['destination', 'amount_sol'],
+    },
+  },
+  {
+    name: 'aegis_get_balance',
+    description: 'Check the current SOL balance in the Aegis vault',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+];
+```
+
+## Execute Tools
+
+```typescript
+async function executeTool(toolName: string, toolInput: any) {
+  if (toolName === 'aegis_transfer') {
+    try {
+      const { destination, amount_sol, purpose } = toolInput;
+
+      const signature = await aegis.executeAgent({
+        vault: process.env.VAULT_ADDRESS!,
+        destination,
+        amount: Math.floor(amount_sol * 1e9),
+        vaultNonce: process.env.VAULT_NONCE!,
+        purpose,
+      });
+
+      return {
+        success: true,
+        signature,
+        explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+      };
+    } catch (error: any) {
+      if (error.overrideRequested) {
+        return {
+          success: false,
+          blocked: true,
+          reason: error.message,
+          blinkUrl: error.blinkUrl,
+        };
+      }
+
+      return { success: false, error: error.message };
+    }
+  }
+
+  if (toolName === 'aegis_get_balance') {
+    const balance = await aegis.getVaultBalance(process.env.VAULT_ADDRESS!);
+    const vault = await aegis.getVault(process.env.VAULT_ADDRESS!);
+
+    return {
+      balance_sol: balance / 1e9,
+      daily_limit_sol: vault.dailyLimit.toNumber() / 1e9,
+      spent_today_sol: vault.spentToday.toNumber() / 1e9,
+      remaining_today_sol: (vault.dailyLimit.toNumber() - vault.spentToday.toNumber()) / 1e9,
+    };
+  }
+
+  throw new Error(`Unknown tool: ${toolName}`);
+}
+```
+
+## Complete Example
+
+```typescript
+const messages: any[] = [
+  {
+    role: 'user',
+    content: 'Send 0.1 SOL to 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+  },
+];
+
+while (true) {
+  const response = await anthropic.messages.create({
+    model: 'claude-3-5-sonnet-20241022',
+    max_tokens: 1024,
+    system: 'You are a financial assistant with access to a Solana vault via Aegis. You can send SOL payments and check balances.',
+    messages,
+    tools,
+  });
+
+  messages.push({
+    role: 'assistant',
+    content: response.content,
+  });
+
+  // Check for tool use
+  const toolUse = response.content.find((block) => block.type === 'tool_use');
+
+  if (!toolUse) {
+    // No tool use - show final response
+    const textBlock = response.content.find((block) => block.type === 'text');
+    console.log('Claude:', textBlock?.text);
+    break;
+  }
+
+  // Execute tool
+  const result = await executeTool(toolUse.name, toolUse.input);
+
+  // Add tool result
+  messages.push({
+    role: 'user',
+    content: [
+      {
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
+        content: JSON.stringify(result),
+      },
+    ],
+  });
+}
+```
+
+## With Streaming
+
+```typescript
+const stream = await anthropic.messages.stream({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 1024,
+  messages,
+  tools,
+});
+
+for await (const event of stream) {
+  if (event.type === 'content_block_delta') {
+    if (event.delta.type === 'text_delta') {
+      process.stdout.write(event.delta.text);
+    }
+  }
+
+  if (event.type === 'content_block_start') {
+    if (event.content_block.type === 'tool_use') {
+      console.log('\nUsing tool:', event.content_block.name);
+    }
+  }
+}
+```
+
+## Next Steps
+
+- [OpenAI Integration](/integrations/openai) - OpenAI function calling
+- [LangChain Integration](/integrations/langchain) - LangChain tools
+- [Custom Integration](/integrations/custom) - Build your own

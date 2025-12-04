@@ -1,0 +1,56 @@
+# Payment Automation Agent
+
+Automate SOL payments with approval workflows for non-whitelisted recipients.
+
+## Overview
+
+Build an agent that:
+- Processes payment requests
+- Auto-approves whitelisted vendors
+- Requests approval for new vendors
+- Tracks payment history
+
+## Implementation
+
+```typescript
+class PaymentAgent {
+  async processPayment(recipient: string, amount: number, purpose: string) {
+    try {
+      const signature = await this.aegis.executeAgent({
+        vault: this.vaultAddress,
+        destination: recipient,
+        amount,
+        vaultNonce: this.vaultNonce,
+        purpose,
+      });
+
+      await this.logPayment({ recipient, amount, signature, status: 'success' });
+
+    } catch (error: any) {
+      if (error.overrideRequested) {
+        await this.requestApproval({
+          recipient,
+          amount,
+          purpose,
+          blinkUrl: error.blinkUrl,
+        });
+      }
+    }
+  }
+
+  private async requestApproval(payment: Payment) {
+    // Send email/Slack notification with Blink URL
+    await this.notifyOwner({
+      type: 'payment_approval_required',
+      ...payment,
+    });
+  }
+}
+```
+
+## Use Cases
+
+- Vendor payments
+- Payroll automation
+- Subscription management
+- Expense reimbursement

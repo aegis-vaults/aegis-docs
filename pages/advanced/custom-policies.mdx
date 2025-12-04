@@ -1,0 +1,222 @@
+# Custom Policy Logic
+
+Build custom validation and policy logic on top of Aegis.
+
+## Overview
+
+While Aegis provides daily limits and whitelists on-chain, you can add additional custom policies in your application layer.
+
+## Pre-Transaction Validation
+
+### Time-Based Limits
+
+Restrict transactions to specific time windows:
+
+```typescript
+class TimeRestrictedVault {
+  private allowedHours = { start: 9, end: 17 }; // 9 AM - 5 PM
+
+  async executeWithTimeCheck(params: ExecuteAgentOptions) {
+    const hour = new Date().getHours();
+
+    if (hour < this.allowedHours.start || hour >= this.allowedHours.end) {
+      throw new Error('Transactions only allowed during business hours');
+    }
+
+    return await this.client.executeAgent(params);
+  }
+}
+```
+
+### Amount Limits Per Destination
+
+Track spending per recipient:
+
+```typescript
+class PerRecipientLimits {
+  private spendingTracker = new Map<string, number>();
+  private perRecipientLimit = 1 * LAMPORTS_PER_SOL;
+
+  async executeWithRecipientLimit(params: ExecuteAgentOptions) {
+    const spent = this.spendingTracker.get(params.destination) || 0;
+
+    if (spent + params.amount > this.perRecipientLimit) {
+      throw new Error(`Exceeds per-recipient limit for ${params.destination}`);
+    }
+
+    const signature = await this.client.executeAgent(params);
+
+    this.spendingTracker.set(
+      params.destination,
+      spent + params.amount
+    );
+
+    return signature;
+  }
+}
+```
+
+### Velocity Checks
+
+Prevent rapid successive transactions:
+
+```typescript
+class VelocityCheck {
+  private lastTransaction = 0;
+  private minimumDelay = 60000; // 1 minute
+
+  async executeWithVelocityCheck(params: ExecuteAgentOptions) {
+    const now = Date.now();
+    const timeSinceLastMSec = now - this.lastTransaction;
+
+    if (timeSinceLastTx < this.minimumDelay) {
+      throw new Error(`Must wait ${this.minimumDelay / 1000}s between transactions`);
+    }
+
+    const signature = await this.client.executeAgent(params);
+    this.lastTransaction = now;
+
+    return signature;
+  }
+}
+```
+
+## Multi-Signature Approval
+
+Require multiple approvals for large transactions:
+
+```typescript
+class MultiSigPolicy {
+  private pendingApprovals = new Map<string, Set<string>>();
+  private requiredSignatures = 2;
+
+  async requestApproval(txId: string, approver: string, params: ExecuteAgentOptions) {
+    if (!this.pendingApprovals.has(txId)) {
+      this.pendingApprovals.set(txId, new Set());
+    }
+
+    const approvals = this.pendingApprovals.get(txId)!;
+    approvals.add(approver);
+
+    if (approvals.size >= this.requiredSignatures) {
+      // Execute transaction
+      const signature = await this.client.executeAgent(params);
+      this.pendingApprovals.delete(txId);
+      return signature;
+    }
+
+    return { status: 'pending', approvals: approvals.size };
+  }
+}
+```
+
+## Risk Scoring
+
+Score transactions by risk level:
+
+```typescript
+interface RiskFactors {
+  isNewRecipient: boolean;
+  isLargeAmount: boolean;
+  isOffHours: boolean;
+  velocityHigh: boolean;
+}
+
+class RiskBasedPolicy {
+  calculateRiskScore(params: ExecuteAgentOptions, factors: RiskFactors): number {
+    let score = 0;
+
+    if (factors.isNewRecipient) score += 3;
+    if (factors.isLargeAmount) score += 5;
+    if (factors.isOffHours) score += 2;
+    if (factors.velocityHigh) score += 4;
+
+    return score;
+  }
+
+  async executeWithRiskCheck(params: ExecuteAgentOptions) {
+    const factors = this.assessFactors(params);
+    const riskScore = this.calculateRiskScore(params, factors);
+
+    if (riskScore >= 10) {
+      // High risk - require manual approval
+      await this.requestManualApproval(params, riskScore);
+      throw new Error('High risk transaction - manual approval required');
+    }
+
+    if (riskScore >= 5) {
+      // Medium risk - add delay
+      await this.delay(60000); // 1 minute delay
+    }
+
+    // Low risk - execute immediately
+    return await this.client.executeAgent(params);
+  }
+}
+```
+
+## Compliance Rules
+
+Implement compliance requirements:
+
+```typescript
+class CompliancePolicy {
+  private sanctionedAddresses = new Set<string>();
+  private maxTransactionSize = 10 * LAMPORTS_PER_SOL;
+
+  async executeWithCompliance(params: ExecuteAgentOptions) {
+    // Sanctions screening
+    if (this.sanctionedAddresses.has(params.destination)) {
+      await this.reportViolation('SANCTIONED_ADDRESS', params);
+      throw new Error('Destination is on sanctions list');
+    }
+
+    // Large transaction reporting
+    if (params.amount > this.maxTransactionSize) {
+      await this.reportLargeTransaction(params);
+    }
+
+    // Execute with audit trail
+    const signature = await this.client.executeAgent(params);
+
+    await this.logComplianceEvent({
+      signature,
+      destination: params.destination,
+      amount: params.amount,
+      timestamp: new Date(),
+    });
+
+    return signature;
+  }
+}
+```
+
+## Combined Policies
+
+Combine multiple policies:
+
+```typescript
+class AdvancedVault {
+  private policies = [
+    new TimeRestrictedVault(),
+    new VelocityCheck(),
+    new RiskBasedPolicy(),
+    new CompliancePolicy(),
+  ];
+
+  async execute(params: ExecuteAgentOptions) {
+    // Run all policy checks
+    for (const policy of this.policies) {
+      await policy.validate(params);
+    }
+
+    // All checks passed - execute
+    return await this.client.executeAgent(params);
+  }
+}
+```
+
+## Next Steps
+
+- [Event-Driven Architecture](/advanced/event-driven) - React to events
+- [Performance Optimization](/advanced/performance) - Optimize throughput

@@ -1,0 +1,86 @@
+# Multi-Agent System
+
+Coordinate multiple AI agents with individual vaults and shared treasury.
+
+## Overview
+
+Build a system with:
+- Multiple specialized agents
+- Individual vault limits per agent
+- Shared treasury pool
+- Centralized monitoring
+
+## Architecture
+
+```
+┌─────────────────┐
+│  Master Vault   │ (Treasury)
+└────────┬────────┘
+         │
+    ┌────┴────┬────────┬────────┐
+    ▼         ▼        ▼        ▼
+┌───────┐ ┌───────┐ ┌───────┐ ┌───────┐
+│Trading│ │ DeFi  │ │Payment│ │Backup │
+│ Agent │ │ Agent │ │ Agent │ │ Agent │
+└───────┘ └───────┘ └───────┘ └───────┘
+```
+
+## Implementation
+
+```typescript
+class MultiAgentSystem {
+  private agents: Map<string, AegisClient> = new Map();
+
+  async createAgentVault(agentName: string, dailyLimit: number) {
+    const agentKeypair = Keypair.generate();
+
+    const vault = await this.masterClient.createVault({
+      name: `${agentName} Vault`,
+      agentSigner: agentKeypair.publicKey.toBase58(),
+      dailyLimit,
+    });
+
+    const client = new AegisClient({...});
+    client.setWallet(agentKeypair);
+
+    this.agents.set(agentName, client);
+
+    return vault;
+  }
+
+  async getAllAgentStats() {
+    const stats = [];
+
+    for (const [name, client] of this.agents) {
+      const vaultAddress = this.getVaultAddress(name);
+      const vault = await client.getVault(vaultAddress);
+      const balance = await client.getVaultBalance(vaultAddress);
+
+      stats.push({
+        name,
+        balance: balance / 1e9,
+        spent_today: vault.spentToday.toNumber() / 1e9,
+        daily_limit: vault.dailyLimit.toNumber() / 1e9,
+      });
+    }
+
+    return stats;
+  }
+}
+```
+
+## Monitoring
+
+```typescript
+setInterval(async () => {
+  const stats = await system.getAllAgentStats();
+
+  for (const agent of stats) {
+    console.log(`${agent.name}: ${agent.balance} SOL`);
+
+    if (agent.balance < 0.1) {
+      await system.fundAgent(agent.name, 1); // Fund 1 SOL
+    }
+  }
+}, 60000); // Every minute
+```

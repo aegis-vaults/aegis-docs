@@ -1,0 +1,408 @@
+# API Endpoints
+
+Complete REST API reference for Aegis Guardian.
+
+## Base URL
+
+```
+https://aegis-guardian-production.up.railway.app
+```
+
+## Health Check
+
+### GET /api/health
+
+Check service health and connectivity.
+
+**Response:**
+
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "redis": "connected",
+  "uptime": 123456,
+  "timestamp": "2024-12-03T00:00:00.000Z"
+}
+```
+
+## Vaults
+
+### GET /api/vaults
+
+List all vaults with pagination.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `limit` | number | 50 | Results per page |
+| `owner` | string | - | Filter by owner address |
+
+**Example:**
+
+```bash
+curl "https://aegis-guardian-production.up.railway.app/api/vaults?page=1&limit=20"
+```
+
+**Response:**
+
+```json
+{
+  "vaults": [
+    {
+      "id": "uuid",
+      "address": "7xKX...",
+      "authority": "owner_pubkey",
+      "agentSigner": "agent_pubkey",
+      "dailyLimit": "1000000000",
+      "name": "My Vault",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "transactionCount": 42,
+      "totalVolume": "50000000000"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 100,
+    "pages": 5
+  }
+}
+```
+
+---
+
+### GET /api/vaults/:address
+
+Get vault details by address.
+
+**Parameters:**
+
+- `address` - Vault PDA address
+
+**Example:**
+
+```bash
+curl "https://aegis-guardian-production.up.railway.app/api/vaults/7xKX..."
+```
+
+**Response:**
+
+```json
+{
+  "id": "uuid",
+  "address": "7xKX...",
+  "authority": "owner_pubkey",
+  "agentSigner": "agent_pubkey",
+  "dailyLimit": "1000000000",
+  "spentToday": "250000000",
+  "lastReset": "2024-12-03T00:00:00.000Z",
+  "name": "My Vault",
+  "paused": false,
+  "whitelistCount": 5,
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-12-03T00:00:00.000Z",
+  "stats": {
+    "transactionCount": 42,
+    "totalVolume": "50000000000",
+    "blockedCount": 3,
+    "avgTransactionSize": "1190476190"
+  }
+}
+```
+
+## Transactions
+
+### GET /api/transactions
+
+List transactions with filtering.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `vault` | string | - | Filter by vault address |
+| `status` | string | - | Filter by status (executed, blocked, pending) |
+| `page` | number | 1 | Page number |
+| `limit` | number | 50 | Results per page |
+
+**Example:**
+
+```bash
+curl "https://aegis-guardian-production.up.railway.app/api/transactions?vault=7xKX...&status=executed&limit=10"
+```
+
+**Response:**
+
+```json
+{
+  "transactions": [
+    {
+      "id": "uuid",
+      "signature": "5x...",
+      "vault": "7xKX...",
+      "destination": "recipient_pubkey",
+      "amount": "10000000",
+      "status": "executed",
+      "blockReason": null,
+      "timestamp": "2024-12-03T00:00:00.000Z",
+      "feeCollected": "500"
+    },
+    {
+      "id": "uuid",
+      "signature": null,
+      "vault": "7xKX...",
+      "destination": "non_whitelisted_pubkey",
+      "amount": "50000000",
+      "status": "blocked",
+      "blockReason": "not_whitelisted",
+      "timestamp": "2024-12-02T00:00:00.000Z",
+      "blinkUrl": "https://..."
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 42,
+    "pages": 5
+  }
+}
+```
+
+---
+
+### GET /api/transactions/:signature
+
+Get transaction details by signature.
+
+**Parameters:**
+
+- `signature` - Transaction signature
+
+**Example:**
+
+```bash
+curl "https://aegis-guardian-production.up.railway.app/api/transactions/5x..."
+```
+
+**Response:**
+
+```json
+{
+  "id": "uuid",
+  "signature": "5x...",
+  "vault": "7xKX...",
+  "destination": "recipient_pubkey",
+  "amount": "10000000",
+  "status": "executed",
+  "blockReason": null,
+  "feeCollected": "500",
+  "timestamp": "2024-12-03T00:00:00.000Z",
+  "explorerUrl": "https://explorer.solana.com/tx/5x...?cluster=devnet"
+}
+```
+
+## Analytics
+
+### GET /api/analytics
+
+Get aggregated vault metrics.
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `vault` | string | - | Vault address (optional) |
+| `startDate` | string | - | ISO date (optional) |
+| `endDate` | string | - | ISO date (optional) |
+| `groupBy` | string | `day` | Group by: day, week, month |
+
+**Example:**
+
+```bash
+curl "https://aegis-guardian-production.up.railway.app/api/analytics?vault=7xKX...&startDate=2024-01-01&endDate=2024-12-31&groupBy=month"
+```
+
+**Response:**
+
+```json
+{
+  "vault": "7xKX...",
+  "period": {
+    "start": "2024-01-01T00:00:00.000Z",
+    "end": "2024-12-31T23:59:59.999Z"
+  },
+  "summary": {
+    "totalSpent": "50000000000",
+    "transactionCount": 42,
+    "blockedCount": 3,
+    "averageAmount": "1190476190",
+    "successRate": 0.93
+  },
+  "topDestinations": [
+    {
+      "address": "dest1_pubkey",
+      "amount": "20000000000",
+      "count": 15
+    },
+    {
+      "address": "dest2_pubkey",
+      "amount": "15000000000",
+      "count": 10
+    }
+  ],
+  "spendingByPeriod": [
+    {
+      "period": "2024-01",
+      "amount": "5000000000",
+      "count": 5
+    },
+    {
+      "period": "2024-02",
+      "amount": "8000000000",
+      "count": 8
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/analytics/realtime
+
+Get real-time metrics (no caching).
+
+**Query Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `vault` | string | - | Vault address (required) |
+
+**Example:**
+
+```bash
+curl "https://aegis-guardian-production.up.railway.app/api/analytics/realtime?vault=7xKX..."
+```
+
+**Response:**
+
+```json
+{
+  "vault": "7xKX...",
+  "timestamp": "2024-12-03T00:00:00.000Z",
+  "balance": "990000000",
+  "spentToday": "250000000",
+  "dailyLimit": "1000000000",
+  "utilizationPct": 25.0,
+  "transactionsToday": 3,
+  "lastTransaction": "2024-12-03T00:00:00.000Z"
+}
+```
+
+## Blinks (Solana Actions)
+
+### GET /api/actions/:vault/:nonce
+
+Get Blink metadata for an override request.
+
+**Parameters:**
+
+- `vault` - Vault address
+- `nonce` - Override nonce
+
+**Example:**
+
+```bash
+curl "https://aegis-guardian-production.up.railway.app/api/actions/7xKX.../0"
+```
+
+**Response (Actions JSON):**
+
+```json
+{
+  "type": "action",
+  "icon": "https://aegis-vaults.xyz/icon.png",
+  "title": "Approve Transaction Override",
+  "description": "Approve blocked transaction from My Vault",
+  "label": "Approve",
+  "links": {
+    "actions": [
+      {
+        "label": "Approve 0.05 SOL to 7xKX...",
+        "href": "/api/actions/7xKX.../0/approve"
+      },
+      {
+        "label": "Reject",
+        "href": "/api/actions/7xKX.../0/reject"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### POST /api/actions/:vault/:nonce/approve
+
+Approve an override request (returns transaction for wallet to sign).
+
+**Parameters:**
+
+- `vault` - Vault address
+- `nonce` - Override nonce
+
+**Request Body:**
+
+```json
+{
+  "account": "owner_pubkey"
+}
+```
+
+**Response:**
+
+```json
+{
+  "transaction": "base64_encoded_transaction",
+  "message": "Override approved. Transaction will execute automatically."
+}
+```
+
+## Error Responses
+
+All errors follow this format:
+
+```json
+{
+  "error": "Error message",
+  "code": "ERROR_CODE",
+  "details": {}
+}
+```
+
+**Common Error Codes:**
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `VAULT_NOT_FOUND` | 404 | Vault doesn't exist |
+| `TRANSACTION_NOT_FOUND` | 404 | Transaction doesn't exist |
+| `UNAUTHORIZED` | 401 | Invalid authentication |
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests |
+| `VALIDATION_ERROR` | 400 | Invalid input |
+| `INTERNAL_ERROR` | 500 | Server error |
+
+## Rate Limits
+
+| Endpoint Type | Limit |
+|---------------|-------|
+| Read endpoints | 100 requests/minute |
+| Write endpoints | 20 requests/minute |
+| Analytics | 30 requests/minute |
+
+## Next Steps
+
+- [Webhooks](/guardian/webhooks) - Configure notifications
+- [Blinks](/guardian/blinks) - Learn about Solana Actions
+- [SDK](/sdk) - Use the TypeScript SDK

@@ -1,0 +1,8 @@
+{
+  "index": "Protocol Overview",
+  "architecture": "Architecture",
+  "accounts": "Accounts & PDAs",
+  "instructions": "Instructions",
+  "errors": "Error Codes",
+  "security": "Security Model"
+}

@@ -1,0 +1,148 @@
+# Accounts & PDAs
+
+Complete reference for all on-chain accounts and Program Derived Addresses.
+
+## VaultConfig Account
+
+Main vault configuration PDA.
+
+**Seeds:** `["vault", authority, nonce]`
+
+**Size:** 859 bytes
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `authority` | Pubkey | Vault owner (32 bytes) |
+| `agent_signer` | Pubkey | Authorized AI agent (32 bytes) |
+| `daily_limit` | u64 | Max lamports per day |
+| `spent_today` | u64 | Amount spent today |
+| `last_reset` | i64 | Unix timestamp of last reset |
+| `whitelist` | [Pubkey; 20] | Whitelisted addresses |
+| `whitelist_count` | u8 | Number of active addresses |
+| `tier` | VaultTier | Vault tier enum |
+| `fee_basis_points` | u16 | Fee (default: 5 = 0.05%) |
+| `name` | [u8; 50] | Vault name (UTF-8) |
+| `name_len` | u8 | Actual name length |
+| `paused` | bool | Is vault paused |
+| `override_nonce` | u64 | Next override nonce |
+| `vault_nonce` | u64 | Vault nonce |
+| `bump` | u8 | PDA bump seed |
+
+## Vault Authority PDA
+
+Holds actual SOL for the vault.
+
+**Seeds:** `["vault_authority", vault_pda]`
+
+**Type:** System Program account
+
+This is the **deposit address** where users send SOL to fund vaults.
+
+## PendingOverride Account
+
+Stores override requests for blocked transactions.
+
+**Seeds:** `["override", vault_pda, override_nonce]`
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vault` | Pubkey | Vault address |
+| `nonce` | u64 | Override nonce |
+| `destination` | Pubkey | Blocked destination |
+| `amount` | u64 | Blocked amount |
+| `reason` | BlockReason | Why blocked |
+| `approved` | bool | Approval status |
+| `executed` | bool | Execution status |
+| `expires_at` | i64 | Expiration timestamp |
+| `created_at` | i64 | Creation timestamp |
+
+## FeeTreasury Account
+
+Singleton account collecting protocol fees.
+
+**Seeds:** `["fee_treasury"]`
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `authority` | Pubkey | Treasury owner |
+| `total_collected` | u64 | Total fees collected |
+| `bump` | u8 | PDA bump seed |
+
+## Enums
+
+### VaultTier
+
+```rust
+pub enum VaultTier {
+    Personal,
+    Team,
+    Enterprise,
+}
+```
+
+### BlockReason
+
+```rust
+pub enum BlockReason {
+    NotWhitelisted = 0,
+    ExceededDailyLimit = 1,
+    InsufficientFunds = 2,
+}
+```
+
+## PDA Derivation Examples
+
+### Derive Vault PDA (TypeScript)
+
+```typescript
+import { PublicKey } from '@solana/web3.js';
+
+function deriveVaultPda(
+  authority: PublicKey,
+  programId: PublicKey,
+  nonce: bigint
+): [PublicKey, number] {
+  const nonceBuffer = Buffer.alloc(8);
+  nonceBuffer.writeBigUInt64LE(nonce);
+
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('vault'),
+      authority.toBuffer(),
+      nonceBuffer,
+    ],
+    programId
+  );
+}
+```
+
+### Derive Vault Authority (TypeScript)
+
+```typescript
+function deriveVaultAuthority(
+  vaultPda: PublicKey,
+  programId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('vault_authority'),
+      vaultPda.toBuffer(),
+    ],
+    programId
+  );
+}
+```
+
+## Rent Exemption
+
+All accounts are rent-exempt:
+
+- VaultConfig: ~0.006 SOL
+- PendingOverride: ~0.002 SOL
+- FeeTreasury: ~0.001 SOL

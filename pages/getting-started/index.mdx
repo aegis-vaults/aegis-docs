@@ -1,0 +1,237 @@
+# What is Aegis?
+
+Aegis is a production-grade on-chain operating system for AI finance on Solana. It enables AI agents to autonomously execute blockchain transactions with human-in-the-loop safety controls.
+
+## The Problem
+
+AI agents need to execute on-chain transactions autonomously, but giving them unrestricted access to wallets is dangerous:
+- No spending limits
+- No recipient restrictions
+- No human oversight
+- All-or-nothing trust model
+
+Traditional solutions like multi-sig wallets are:
+- Too slow for autonomous agents
+- Require manual approval for every transaction
+- Don't scale for high-frequency operations
+
+## The Solution
+
+Aegis provides **smart vaults** - programmable accounts that enforce policies on-chain while allowing autonomous execution within those policies.
+
+### How It Works
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   AI Agent      │───▶│  Aegis Protocol  │───▶│   Destination   │
+│   (Signer)      │    │  (Policy Check)  │    │    Wallet       │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+              ✅ PASSES            ❌ BLOCKED
+           (Tx Executes)         (Notify Owner)
+                                      │
+                                      ▼
+                              ┌───────────────┐
+                              │  Blink URL    │
+                              │  (Approve/    │
+                              │   Deny)       │
+                              └───────────────┘
+```
+
+1. **Vault Owner** creates a vault and funds it
+2. **AI Agent** attempts to send SOL from the vault
+3. **Aegis Protocol** checks if transaction passes policy:
+   - Within daily spending limit?
+   - Destination address whitelisted?
+   - Vault not paused?
+4. If **PASSES**: Transaction executes immediately
+5. If **BLOCKED**: Owner receives notification with approval link
+
+## Key Features
+
+### On-Chain Policy Enforcement
+
+All policy checks happen on-chain via the Solana program:
+- **Daily Spending Limits**: Prevent agents from spending more than X SOL per day
+- **Whitelist**: Only allow transfers to approved addresses
+- **Pausable**: Emergency stop switch for vault owners
+- **Agent Rotation**: Update which keypair can sign for the vault
+
+### Human-in-the-Loop Override System
+
+When a transaction is blocked:
+1. SDK automatically notifies Guardian API
+2. Guardian generates a Solana Blink (Action)
+3. Vault owner receives notification via:
+   - Email (SendGrid)
+   - Telegram
+   - Discord
+   - Webhook
+4. Owner clicks Blink URL and approves in wallet
+5. Transaction executes immediately after approval
+
+### AI Framework Integration
+
+Pre-built integrations for popular frameworks:
+- **OpenAI**: Function calling tools for GPT-4
+- **LangChain**: DynamicStructuredTool implementations
+- **Anthropic Claude**: Tool definitions for Claude
+
+### Production-Grade Infrastructure
+
+- **Event Monitoring**: Guardian listens to all on-chain events
+- **Transaction History**: Full audit trail of all vault operations
+- **Analytics**: Spending patterns, failed transactions, policy violations
+- **Reliability**: Built on Next.js, PostgreSQL, Redis for scale
+
+## Two Types of Users
+
+| Role | Description | Signs Transactions With |
+|------|-------------|------------------------|
+| **Vault Owner** | Human who creates and funds vaults, sets policies | Browser wallet (Phantom, Backpack, etc.) |
+| **AI Agent** | AI system that executes transactions autonomously | Server-side keypair |
+
+## Key Addresses
+
+Each vault has **TWO** important addresses:
+
+| Address | Purpose | Use Case |
+|---------|---------|----------|
+| **Vault Address** | Configuration PDA | Pass to SDK methods |
+| **Deposit Address** | Holds actual SOL | Send funds HERE to fund vault |
+
+⚠️ **IMPORTANT**: Always send SOL to the **Deposit Address**, not the Vault Address!
+
+## Use Cases
+
+### Autonomous Trading Bots
+Give your trading bot controlled access to execute trades within daily limits and approved DEXs.
+
+```typescript
+// Trading bot with 10 SOL daily limit
+const vault = await client.createVault({
+  name: 'Trading Bot Vault',
+  agentSigner: tradingBotPublicKey,
+  dailyLimit: 10_000_000_000, // 10 SOL
+});
+
+// Whitelist Jupiter, Orca, Raydium
+await client.addToWhitelist(vault.address, vault.nonce, JUPITER_PROGRAM);
+await client.addToWhitelist(vault.address, vault.nonce, ORCA_PROGRAM);
+await client.addToWhitelist(vault.address, vault.nonce, RAYDIUM_PROGRAM);
+```
+
+### DeFi Automation Agents
+Let AI agents manage yield farming, rebalancing, and other DeFi operations with safety guardrails.
+
+```typescript
+// DeFi agent with 100 SOL daily limit
+const vault = await client.createVault({
+  name: 'DeFi Automation Vault',
+  agentSigner: defiAgentPublicKey,
+  dailyLimit: 100_000_000_000, // 100 SOL
+});
+```
+
+### Payment Automation
+Enable AI-powered payment systems with whitelisted recipients and spending limits.
+
+```typescript
+// Payment agent with whitelist of approved vendors
+const vault = await client.createVault({
+  name: 'Payment Agent Vault',
+  agentSigner: paymentAgentPublicKey,
+  dailyLimit: 50_000_000_000, // 50 SOL
+});
+
+// Only allow payments to approved vendors
+await client.addToWhitelist(vault.address, vault.nonce, VENDOR_A);
+await client.addToWhitelist(vault.address, vault.nonce, VENDOR_B);
+await client.addToWhitelist(vault.address, vault.nonce, VENDOR_C);
+```
+
+### Multi-Agent Collaboration
+Coordinate multiple AI agents with individual vaults and shared treasury pools.
+
+```typescript
+// Create separate vaults for different agent roles
+const tradingVault = await client.createVault({...});
+const rebalancingVault = await client.createVault({...});
+const liquidationVault = await client.createVault({...});
+```
+
+## Network Support
+
+| Network | Status | Program ID |
+|---------|--------|------------|
+| **Devnet** | ✅ Live | `ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ` |
+| **Mainnet Beta** | 🚧 Coming Soon | TBA |
+
+## System Components
+
+### aegis-protocol (Anchor/Rust)
+Solana smart contract that enforces:
+- Vault creation and configuration
+- Policy-based transaction execution
+- Override request and approval system
+- Fee collection (0.05% to treasury)
+
+**Repository**: [aegis-protocol](https://github.com/aegis-vaults/aegis-protocol)
+
+### aegis-guardian (Next.js/TypeScript)
+Backend service that provides:
+- WebSocket listener for on-chain events
+- REST API for vault management
+- Transaction history and analytics
+- Blink (Solana Actions) generation
+- Multi-channel notifications
+
+**Live API**: https://aegis-guardian-production.up.railway.app
+
+### aegis-sdk (TypeScript)
+Developer-friendly SDK for:
+- Creating and managing vaults
+- Executing agent transactions
+- AI framework integrations (OpenAI, LangChain, Claude)
+- Override request handling
+
+**NPM**: `npm install @aegis-vaults/sdk`
+
+### aegis-app (React)
+Web dashboard for:
+- Wallet-based authentication
+- Vault creation and configuration
+- Transaction monitoring
+- Override approval workflow
+
+**Live App**: https://aegis-vaults.xyz
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 📚 Core Concepts
+    Learn about vaults, agents, and the override system
+    [Learn Concepts →](/getting-started/concepts)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🚀 Quickstart
+    Create your first vault in 5 minutes
+    [Start Building →](/getting-started/quickstart)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 💻 Installation
+    Install the SDK and set up your environment
+    [Install SDK →](/getting-started/installation)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🤖 AI Integrations
+    Add Aegis to your OpenAI or LangChain agent
+    [View Integrations →](/integrations)
+  </div>
+</div>

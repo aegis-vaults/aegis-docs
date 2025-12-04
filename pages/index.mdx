@@ -1,0 +1,141 @@
+# Aegis Documentation
+
+Welcome to Aegis - the on-chain operating system for AI finance on Solana.
+
+## What is Aegis?
+
+Aegis enables AI agents to autonomously execute on-chain transactions with human-in-the-loop safety controls. Give your AI agent controlled access to Solana funds through smart vaults with:
+
+- **Policy Guards**: Daily spending limits and address whitelists enforced on-chain
+- **Override System**: Blocked transactions trigger notifications to vault owners who can approve via Solana Blinks
+- **Multi-Channel Notifications**: Email, Telegram, Discord, and webhook alerts for blocked transactions
+- **AI Framework Integration**: Drop-in tools for OpenAI, LangChain, and Anthropic Claude
+
+## Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   AI Agent      │───▶│  Aegis Protocol  │───▶│   Destination   │
+│   (Signer)      │    │  (Policy Check)  │    │    Wallet       │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+              ✅ PASSES            ❌ BLOCKED
+           (Tx Executes)         (Notify Owner)
+                                      │
+                                      ▼
+                              ┌───────────────┐
+                              │  Blink URL    │
+                              │  (Approve/    │
+                              │   Deny)       │
+                              └───────────────┘
+```
+
+## System Components
+
+### aegis-protocol (On-chain)
+Solana smart contract built with Anchor that enforces:
+- Vault creation and management
+- Policy-based transaction execution
+- Override request system
+- Fee collection
+
+### aegis-guardian (Backend)
+Next.js backend service that provides:
+- Event monitoring via WebSocket
+- REST API for vault management
+- Transaction history and analytics
+- Blink (Solana Actions) generation
+- Multi-channel notifications
+
+### aegis-sdk (TypeScript SDK)
+Developer-friendly SDK for:
+- Creating and managing vaults
+- Executing agent transactions
+- AI framework integrations (OpenAI, LangChain, Claude)
+- Override request handling
+
+### aegis-app (Frontend)
+React dashboard for:
+- Wallet-based authentication
+- Vault creation and configuration
+- Transaction monitoring
+- Override approval workflow
+
+## Quick Links
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+  <div className="border rounded-lg p-6">
+    ### 🚀 Getting Started
+    Learn the basics and build your first AI agent vault.
+    [Get Started →](/getting-started)
+  </div>
+
+  <div className="border rounded-lg p-6">
+    ### 📚 SDK Documentation
+    Complete API reference and integration guides.
+    [View SDK Docs →](/sdk)
+  </div>
+
+  <div className="border rounded-lg p-6">
+    ### 🔧 Protocol Reference
+    Deep dive into the Anchor smart contract.
+    [Protocol Docs →](/protocol)
+  </div>
+
+  <div className="border rounded-lg p-6">
+    ### 🤖 AI Integrations
+    Drop-in tools for OpenAI, LangChain, and Claude.
+    [View Integrations →](/integrations)
+  </div>
+</div>
+
+## Use Cases
+
+### Autonomous Trading Bots
+Give your trading bot controlled access to execute trades within daily limits and approved DEXs.
+
+### DeFi Automation Agents
+Let AI agents manage yield farming, rebalancing, and other DeFi operations with safety guardrails.
+
+### Payment Automation
+Enable AI-powered payment systems with whitelisted recipients and spending limits.
+
+### Multi-Agent Collaboration
+Coordinate multiple AI agents with individual vaults and shared treasury pools.
+
+## Key Features
+
+### On-Chain Policy Enforcement
+All policy checks happen on-chain via the Solana program - no trusted third parties.
+
+### Human-in-the-Loop Safety
+When transactions are blocked, vault owners receive instant notifications with one-click approval via Blinks.
+
+### AI Framework Ready
+Pre-built integrations for popular AI frameworks make it trivial to give your agents vault access.
+
+### Production-Grade Infrastructure
+Guardian backend provides event monitoring, analytics, and reliable notification delivery.
+
+## Network Support
+
+| Network | Status | Program ID |
+|---------|--------|------------|
+| **Devnet** | ✅ Live | `ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ` |
+| **Mainnet Beta** | 🚧 Coming Soon | TBA |
+
+## Community & Support
+
+- **Discord**: [Join our community](https://discord.gg/aegis-vaults)
+- **GitHub**: [aegis-vaults](https://github.com/aegis-vaults)
+- **Twitter**: [@aegis_vaults](https://twitter.com/aegis_vaults)
+- **Guardian API**: https://aegis-guardian-production.up.railway.app
+
+## Next Steps
+
+1. **[Understand Core Concepts](/getting-started/concepts)** - Learn about vaults, agents, and the override system
+2. **[Follow the Quickstart](/getting-started/quickstart)** - Create your first vault and execute a transaction
+3. **[Explore AI Integrations](/integrations)** - Add Aegis to your OpenAI or LangChain agent
+4. **[Read Security Best Practices](/security)** - Learn how to secure your vaults and agent keys

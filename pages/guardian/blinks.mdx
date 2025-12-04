@@ -1,0 +1,97 @@
+# Blinks (Solana Actions)
+
+Solana Blinks are blockchain links that enable one-click transactions directly from social media and messaging apps.
+
+## What are Blinks?
+
+Blinks (Blockchain Links) transform any Guardian API endpoint into an interactive transaction that can be:
+
+- Shared on Twitter/X
+- Sent via Discord/Telegram
+- Embedded in websites
+- Clicked to execute on-chain actions
+
+## Override Approval Blinks
+
+When a transaction is blocked, Guardian generates a Blink URL for vault owners to approve:
+
+```
+https://aegis-guardian-production.up.railway.app/api/actions/{vault}/{nonce}
+```
+
+### Blink Flow
+
+1. **Agent Transaction Blocked** - Policy violation detected
+2. **Guardian Creates Override** - Stores override request in database
+3. **Blink Generated** - Creates Solana Action URL
+4. **Owner Receives Notification** - Email/Telegram/Discord with Blink link
+5. **Owner Clicks Blink** - Wallet (Phantom, Backpack, etc.) opens
+6. **Owner Approves** - Single transaction:
+   - Creates override on-chain
+   - Approves override
+   - Executes transfer
+
+## Blink Metadata
+
+When a wallet fetches a Blink URL, Guardian returns Actions JSON:
+
+```json
+{
+  "type": "action",
+  "icon": "https://aegis-vaults.xyz/icon.png",
+  "title": "Approve Transaction Override",
+  "description": "Approve blocked transaction from 'My Trading Vault'",
+  "label": "Approve Transaction",
+  "links": {
+    "actions": [
+      {
+        "label": "Approve 0.05 SOL to 7xKX...",
+        "href": "/api/actions/7xKX.../0/approve",
+        "parameters": []
+      },
+      {
+        "label": "Reject",
+        "href": "/api/actions/7xKX.../0/reject",
+        "parameters": []
+      }
+    ]
+  }
+}
+```
+
+## Creating Custom Blinks
+
+You can create custom Blinks for vault operations:
+
+```typescript
+// Custom Blink for adding to whitelist
+const blinkUrl = `https://aegis-guardian-production.up.railway.app/api/actions/custom/whitelist`;
+
+// Guardian returns Actions JSON with transaction to sign
+```
+
+## Blink Best Practices
+
+1. **Short Links** - Use URL shorteners for cleaner sharing
+2. **Expiration** - Overrides expire after 1 hour by default
+3. **Mobile-Friendly** - Test on mobile wallets (Phantom mobile, Solflare)
+4. **Clear Descriptions** - Make it obvious what the Blink does
+5. **Security** - Always verify Blink source before signing
+
+## Testing Blinks
+
+Test your Blinks on devnet:
+
+```bash
+# Generate a Blink URL
+curl https://aegis-guardian-production.up.railway.app/api/actions/7xKX.../0
+
+# Copy the URL and open in Phantom wallet
+# Or use the Solana Actions simulator
+```
+
+## Next Steps
+
+- [Webhooks](/guardian/webhooks) - Configure notifications
+- [API Endpoints](/guardian/endpoints) - Complete API reference
+- [Guardian Overview](/guardian) - Learn about Guardian

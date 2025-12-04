@@ -1,0 +1,230 @@
+# Key Management
+
+Best practices for managing Solana keypairs in Aegis.
+
+## Key Types
+
+### Owner Keypair
+
+Controls the vault - highest privilege.
+
+**Storage:**
+- Hardware wallet (Ledger, Trezor) for mainnet
+- Browser wallet (Phantom, Backpack) for testing
+- **Never** store in environment variables
+
+**Usage:**
+- Create vaults
+- Update policies
+- Approve overrides
+- Emergency pause
+
+### Agent Keypair
+
+Signs autonomous transactions.
+
+**Storage:**
+- Environment variables (development)
+- Secret management service (production)
+- AWS Secrets Manager
+- HashiCorp Vault
+- Google Secret Manager
+
+**Usage:**
+- Execute agent transactions only
+
+## Secure Storage
+
+### Development (Devnet)
+
+```bash
+# .env file
+AGENT_SECRET_KEY='[1,2,3,...]'  # JSON array
+
+# .gitignore
+.env
+*.key
+*.json  # Keypair files
+```
+
+### Production
+
+Use secret management:
+
+```typescript
+// AWS Secrets Manager
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+
+async function getAgentKeypair(): Promise<Keypair> {
+  const client = new SecretsManagerClient({ region: 'us-east-1' });
+
+  const response = await client.send(
+    new GetSecretValueCommand({ SecretId: 'aegis/agent-keypair' })
+  );
+
+  const secretKey = JSON.parse(response.SecretString!);
+  return Keypair.fromSecretKey(Uint8Array.from(secretKey));
+}
+```
+
+## Key Rotation
+
+### Automatic Rotation
+
+```typescript
+async function rotateAgentKey() {
+  // 1. Generate new keypair
+  const newKeypair = Keypair.generate();
+
+  // 2. Update on-chain (requires owner signature)
+  const ownerClient = new AegisClient({...});
+  ownerClient.setWallet(ownerKeypair);
+
+  await ownerClient.updateAgentSigner(
+    vaultAddress,
+    vaultNonce,
+    newKeypair.publicKey.toBase58()
+  );
+
+  // 3. Store new key securely
+  await secretsManager.updateSecret({
+    SecretId: 'aegis/agent-keypair',
+    SecretString: JSON.stringify(Array.from(newKeypair.secretKey)),
+  });
+
+  // 4. Update agent to use new key
+  agentClient.setWallet(newKeypair);
+
+  logger.info('Agent key rotated', {
+    oldKey: oldKeypair.publicKey.toBase58(),
+    newKey: newKeypair.publicKey.toBase58(),
+  });
+}
+
+// Rotate every 30 days
+setInterval(rotateAgentKey, 30 * 24 * 60 * 60 * 1000);
+```
+
+## Key Recovery
+
+### Backup Owner Keys
+
+```typescript
+// Store recovery phrase securely
+const mnemonic = bip39.generateMnemonic();
+
+// Derive keypair from mnemonic
+const seed = await bip39.mnemonicToSeed(mnemonic);
+const ownerKeypair = Keypair.fromSeed(seed.slice(0, 32));
+
+// Store mnemonic in secure location:
+// - Password manager (1Password, Bitwarden)
+// - Physical backup (written down, stored in safe)
+// - Multi-signature wallet
+```
+
+### Emergency Access
+
+Configure backup owner:
+
+```typescript
+// When creating vault, document these for recovery:
+const vaultInfo = {
+  vaultAddress: result.vaultAddress,
+  depositAddress: result.depositAddress,
+  nonce: result.nonce,
+  ownerPublicKey: ownerKeypair.publicKey.toBase58(),
+  createdAt: new Date(),
+};
+
+// Store in secure location
+await storeBackupInfo(vaultInfo);
+```
+
+## Access Control
+
+### Principle of Least Privilege
+
+```typescript
+// Agent should ONLY have agent keypair
+// No access to owner keypair
+
+class Agent {
+  private agentKeypair: Keypair;
+  // NO ownerKeypair property!
+
+  async executeTransaction() {
+    // Can only call executeAgent, not owner operations
+    await this.client.executeAgent({...});
+  }
+}
+```
+
+### Separate Environments
+
+```bash
+# Development
+DEV_AGENT_SECRET_KEY=[...]
+DEV_VAULT_ADDRESS=...
+
+# Production
+PROD_AGENT_SECRET_KEY=[...]  # Different key!
+PROD_VAULT_ADDRESS=...
+```
+
+## Monitoring
+
+### Key Usage Tracking
+
+```typescript
+const keyUsageLogger = {
+  logKeyUsage: (keyType: 'owner' | 'agent', action: string) => {
+    logger.info({
+      event: 'key_usage',
+      keyType,
+      action,
+      timestamp: new Date(),
+    });
+  },
+};
+
+// Log all key usage
+client.setWallet(agentKeypair);
+keyUsageLogger.logKeyUsage('agent', 'wallet_set');
+
+await client.executeAgent({...});
+keyUsageLogger.logKeyUsage('agent', 'execute_transaction');
+```
+
+### Unauthorized Access Alerts
+
+```typescript
+function detectUnauthorizedAccess() {
+  // Monitor for unexpected key usage
+  const events = await getRecentKeyUsage();
+
+  for (const event of events) {
+    if (event.keyType === 'owner' && !isExpectedOwnerAction(event)) {
+      await alert('UNAUTHORIZED_OWNER_ACCESS', event);
+    }
+  }
+}
+```
+
+## Security Checklist
+
+- ✅ Owner keys in hardware wallet (mainnet)
+- ✅ Agent keys in secret manager (production)
+- ✅ No keys in version control
+- ✅ No keys in logs
+- ✅ Key rotation schedule (30-90 days)
+- ✅ Backup recovery phrase stored securely
+- ✅ Separate keys per environment
+- ✅ Access logging enabled
+- ✅ Unauthorized access monitoring
+- ✅ Team trained on key management
+
+## Next Steps
+
+- [Best Practices](/security/best-practices) - Overall security
+- [Protocol Security](/protocol/security) - On-chain security

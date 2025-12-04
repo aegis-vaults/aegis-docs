@@ -1,0 +1,853 @@
+# API Reference
+
+Complete reference for all AegisClient methods and utilities.
+
+## AegisClient Class
+
+### Constructor
+
+```typescript
+const client = new AegisClient(config: AegisClientConfig)
+```
+
+#### Config Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `cluster` | `'devnet' \| 'mainnet-beta' \| 'testnet'` | `'devnet'` | Solana network |
+| `connection` | `Connection` | - | Custom Connection instance |
+| `programId` | `string` | Devnet ID | Aegis program address |
+| `guardianApiUrl` | `string` | - | Guardian API endpoint |
+| `commitment` | `Commitment` | `'confirmed'` | Transaction confirmation level |
+| `confirmTimeout` | `number` | `60000` | Transaction timeout (ms) |
+| `autoRetry` | `boolean` | `true` | Auto-retry failed transactions |
+| `maxRetries` | `number` | `3` | Maximum retry attempts |
+| `autoRequestOverride` | `boolean` | `true` | Auto-notify Guardian on block |
+
+## Vault Management
+
+### createVault
+
+Create a new Aegis vault.
+
+```typescript
+async createVault(options: CreateVaultOptions): Promise<CreateVaultResult>
+```
+
+**Parameters:**
+
+```typescript
+interface CreateVaultOptions {
+  name: string;              // Vault name (max 50 chars)
+  agentSigner: string;       // Agent public key
+  dailyLimit: number;        // Daily limit in lamports
+}
+```
+
+**Returns:**
+
+```typescript
+interface CreateVaultResult {
+  vaultAddress: string;      // Vault config PDA
+  depositAddress: string;    // Where to send SOL
+  nonce: string;             // Vault nonce (save this!)
+  signature: string;         // Transaction signature
+}
+```
+
+**Example:**
+
+```typescript
+const result = await client.createVault({
+  name: 'AI Trading Vault',
+  agentSigner: agentPublicKey.toBase58(),
+  dailyLimit: 1_000_000_000, // 1 SOL per day
+});
+
+console.log('Vault:', result.vaultAddress);
+console.log('Fund at:', result.depositAddress);
+console.log('Nonce:', result.nonce);
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### getVault
+
+Get vault configuration from on-chain account.
+
+```typescript
+async getVault(address: string): Promise<VaultConfig>
+```
+
+**Parameters:**
+- `address` - Vault PDA address
+
+**Returns:**
+
+```typescript
+interface VaultConfig {
+  authority: PublicKey;      // Vault owner
+  agentSigner: PublicKey;    // Agent keypair
+  dailyLimit: BN;            // Max per day (lamports)
+  spentToday: BN;            // Spent today (lamports)
+  lastReset: BN;             // Unix timestamp
+  whitelist: PublicKey[];    // Whitelisted addresses
+  whitelistCount: number;    // Number of whitelisted
+  paused: boolean;           // Is vault paused
+  vaultNonce: BN;            // Vault nonce
+  overrideNonce: BN;         // Next override nonce
+  name: string;              // Vault name
+}
+```
+
+**Example:**
+
+```typescript
+const vault = await client.getVault(vaultAddress);
+
+console.log('Daily Limit:', vault.dailyLimit.toString());
+console.log('Spent Today:', vault.spentToday.toString());
+console.log('Remaining:', vault.dailyLimit.sub(vault.spentToday).toString());
+console.log('Paused:', vault.paused);
+console.log('Whitelist:', vault.whitelist.map(pk => pk.toBase58()));
+```
+
+**Signer Required:** None
+
+---
+
+### listVaults
+
+List all vaults owned by an address.
+
+```typescript
+async listVaults(owner: string): Promise<VaultConfig[]>
+```
+
+**Parameters:**
+- `owner` - Owner public key
+
+**Returns:** Array of `VaultConfig` objects
+
+**Example:**
+
+```typescript
+const vaults = await client.listVaults(ownerPublicKey.toBase58());
+
+for (const vault of vaults) {
+  console.log('Name:', vault.name);
+  console.log('Daily Limit:', vault.dailyLimit.toString());
+}
+```
+
+**Signer Required:** None
+
+---
+
+### getVaultBalance
+
+Get SOL balance in vault deposit address.
+
+```typescript
+async getVaultBalance(address: string): Promise<number>
+```
+
+**Parameters:**
+- `address` - Vault PDA address
+
+**Returns:** Balance in lamports
+
+**Example:**
+
+```typescript
+const balance = await client.getVaultBalance(vaultAddress);
+
+console.log('Balance:', balance, 'lamports');
+console.log('Balance:', (balance / 1e9).toFixed(4), 'SOL');
+```
+
+**Signer Required:** None
+
+---
+
+### getVaultDepositAddress
+
+Get the deposit address (vault authority PDA) for funding.
+
+```typescript
+getVaultDepositAddress(vaultAddress: string): string
+```
+
+**Parameters:**
+- `vaultAddress` - Vault PDA address
+
+**Returns:** Deposit address (vault authority PDA)
+
+**Example:**
+
+```typescript
+const depositAddress = client.getVaultDepositAddress(vaultAddress);
+
+console.log('Send SOL to:', depositAddress);
+// Use this address to fund the vault
+```
+
+**Signer Required:** None
+
+## Transaction Execution
+
+### executeAgent
+
+Execute an agent-signed transaction within policy.
+
+```typescript
+async executeAgent(options: ExecuteAgentOptions): Promise<string>
+```
+
+**Parameters:**
+
+```typescript
+interface ExecuteAgentOptions {
+  vault: string;             // Vault PDA address
+  destination: string;       // Recipient address
+  amount: number;            // Amount in lamports
+  vaultNonce: string;        // Vault nonce
+  purpose?: string;          // Optional description
+}
+```
+
+**Returns:** Transaction signature
+
+**Throws:**
+- `NotWhitelistedError` - Destination not in whitelist
+- `DailyLimitExceededError` - Would exceed daily limit
+- `VaultPausedError` - Vault is paused
+- `InsufficientBalanceError` - Not enough SOL
+- `UnauthorizedSignerError` - Wrong agent signer
+
+**Example:**
+
+```typescript
+try {
+  const signature = await client.executeAgent({
+    vault: vaultAddress,
+    destination: recipientAddress,
+    amount: 50_000_000, // 0.05 SOL
+    vaultNonce: vaultNonce,
+    purpose: 'Payment for API service',
+  });
+
+  console.log('Success:', signature);
+} catch (error: any) {
+  if (error.overrideRequested) {
+    console.log('Blocked. Approve at:', error.blinkUrl);
+  } else {
+    console.error('Failed:', error.message);
+  }
+}
+```
+
+**Signer Required:** Agent
+
+---
+
+### executeGuarded
+
+Execute an owner-signed transaction with policy validation.
+
+```typescript
+async executeGuarded(options: ExecuteGuardedOptions): Promise<string>
+```
+
+**Parameters:**
+
+```typescript
+interface ExecuteGuardedOptions {
+  vault: string;             // Vault PDA address
+  destination: string;       // Recipient address
+  amount: number;            // Amount in lamports
+  vaultNonce: string;        // Vault nonce
+}
+```
+
+**Returns:** Transaction signature
+
+**Example:**
+
+```typescript
+const signature = await client.executeGuarded({
+  vault: vaultAddress,
+  destination: recipientAddress,
+  amount: 100_000_000, // 0.1 SOL
+  vaultNonce: vaultNonce,
+});
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### requestOverride
+
+Manually request approval for a blocked transaction.
+
+```typescript
+async requestOverride(options: RequestOverrideOptions): Promise<OverrideResult>
+```
+
+**Parameters:**
+
+```typescript
+interface RequestOverrideOptions {
+  vault: string;             // Vault PDA address
+  destination: string;       // Recipient address
+  amount: number;            // Amount in lamports
+  reason?: string;           // Optional reason
+}
+```
+
+**Returns:**
+
+```typescript
+interface OverrideResult {
+  overrideNonce: string;     // Override nonce
+  blinkUrl: string;          // Approval URL
+  expiresAt: Date;           // Expiration time
+}
+```
+
+**Example:**
+
+```typescript
+const override = await client.requestOverride({
+  vault: vaultAddress,
+  destination: nonWhitelistedAddress,
+  amount: 2_000_000_000, // 2 SOL (exceeds limit)
+  reason: 'Emergency payment to new vendor',
+});
+
+console.log('Approve at:', override.blinkUrl);
+console.log('Expires:', override.expiresAt);
+```
+
+**Signer Required:** Agent or Owner
+
+---
+
+### approveOverride
+
+Approve a pending override request.
+
+```typescript
+async approveOverride(
+  vault: string,
+  vaultNonce: string,
+  overrideNonce: string
+): Promise<string>
+```
+
+**Parameters:**
+- `vault` - Vault PDA address
+- `vaultNonce` - Vault nonce
+- `overrideNonce` - Override request nonce
+
+**Returns:** Transaction signature
+
+**Example:**
+
+```typescript
+const signature = await client.approveOverride(
+  vaultAddress,
+  vaultNonce,
+  overrideNonce
+);
+
+console.log('Override approved:', signature);
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### executeOverride
+
+Execute an approved override transaction.
+
+```typescript
+async executeOverride(
+  vault: string,
+  vaultNonce: string
+): Promise<string>
+```
+
+**Parameters:**
+- `vault` - Vault PDA address
+- `vaultNonce` - Vault nonce
+
+**Returns:** Transaction signature
+
+**Example:**
+
+```typescript
+// After owner approves
+const signature = await client.executeOverride(
+  vaultAddress,
+  vaultNonce
+);
+
+console.log('Override executed:', signature);
+```
+
+**Signer Required:** Vault Owner
+
+## Policy Management
+
+### updatePolicy
+
+Update vault daily spending limit.
+
+```typescript
+async updatePolicy(options: UpdatePolicyOptions): Promise<string>
+```
+
+**Parameters:**
+
+```typescript
+interface UpdatePolicyOptions {
+  vault: string;             // Vault PDA address
+  dailyLimit: number;        // New limit in lamports
+}
+```
+
+**Returns:** Transaction signature
+
+**Example:**
+
+```typescript
+await client.updatePolicy({
+  vault: vaultAddress,
+  dailyLimit: 2_000_000_000, // 2 SOL per day
+});
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### addToWhitelist
+
+Add an address to the vault's whitelist.
+
+```typescript
+async addToWhitelist(
+  vault: string,
+  vaultNonce: string,
+  address: string
+): Promise<string>
+```
+
+**Parameters:**
+- `vault` - Vault PDA address
+- `vaultNonce` - Vault nonce
+- `address` - Address to whitelist
+
+**Returns:** Transaction signature
+
+**Throws:** `WhitelistFull` if 20 addresses already in list
+
+**Example:**
+
+```typescript
+await client.addToWhitelist(
+  vaultAddress,
+  vaultNonce,
+  recipientPublicKey.toBase58()
+);
+
+console.log('Address whitelisted');
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### removeFromWhitelist
+
+Remove an address from the whitelist.
+
+```typescript
+async removeFromWhitelist(
+  vault: string,
+  vaultNonce: string,
+  address: string
+): Promise<string>
+```
+
+**Parameters:**
+- `vault` - Vault PDA address
+- `vaultNonce` - Vault nonce
+- `address` - Address to remove
+
+**Returns:** Transaction signature
+
+**Throws:** `WhitelistNotFound` if address not in whitelist
+
+**Example:**
+
+```typescript
+await client.removeFromWhitelist(
+  vaultAddress,
+  vaultNonce,
+  oldAddress
+);
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### pauseVault
+
+Pause a vault to block all transactions.
+
+```typescript
+async pauseVault(
+  vault: string,
+  vaultNonce: string
+): Promise<string>
+```
+
+**Parameters:**
+- `vault` - Vault PDA address
+- `vaultNonce` - Vault nonce
+
+**Returns:** Transaction signature
+
+**Example:**
+
+```typescript
+// Emergency pause
+await client.pauseVault(vaultAddress, vaultNonce);
+
+console.log('Vault paused - all transactions blocked');
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### resumeVault
+
+Resume a paused vault.
+
+```typescript
+async resumeVault(
+  vault: string,
+  vaultNonce: string
+): Promise<string>
+```
+
+**Parameters:**
+- `vault` - Vault PDA address
+- `vaultNonce` - Vault nonce
+
+**Returns:** Transaction signature
+
+**Example:**
+
+```typescript
+await client.resumeVault(vaultAddress, vaultNonce);
+
+console.log('Vault resumed');
+```
+
+**Signer Required:** Vault Owner
+
+---
+
+### updateAgentSigner
+
+Rotate the agent signer keypair.
+
+```typescript
+async updateAgentSigner(
+  vault: string,
+  vaultNonce: string,
+  newSigner: string
+): Promise<string>
+```
+
+**Parameters:**
+- `vault` - Vault PDA address
+- `vaultNonce` - Vault nonce
+- `newSigner` - New agent public key
+
+**Returns:** Transaction signature
+
+**Example:**
+
+```typescript
+const newAgentKeypair = Keypair.generate();
+
+await client.updateAgentSigner(
+  vaultAddress,
+  vaultNonce,
+  newAgentKeypair.publicKey.toBase58()
+);
+
+console.log('Agent signer rotated');
+```
+
+**Signer Required:** Vault Owner
+
+## Guardian API
+
+### getGuardianVault
+
+Get vault data from Guardian API (includes metadata).
+
+```typescript
+async getGuardianVault(address: string): Promise<GuardianVault>
+```
+
+**Returns:**
+
+```typescript
+interface GuardianVault {
+  address: string;
+  authority: string;
+  agentSigner: string;
+  dailyLimit: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  transactionCount: number;
+  totalVolume: string;
+}
+```
+
+**Example:**
+
+```typescript
+const vault = await client.getGuardianVault(vaultAddress);
+
+console.log('Name:', vault.name);
+console.log('Total Transactions:', vault.transactionCount);
+console.log('Total Volume:', vault.totalVolume);
+```
+
+---
+
+### getTransactionHistory
+
+Get transaction history from Guardian.
+
+```typescript
+async getTransactionHistory(options: HistoryOptions): Promise<Transaction[]>
+```
+
+**Parameters:**
+
+```typescript
+interface HistoryOptions {
+  vault: string;             // Vault address
+  limit?: number;            // Max results (default: 50)
+  offset?: number;           // Pagination offset
+  status?: 'executed' | 'blocked' | 'approved';
+}
+```
+
+**Returns:**
+
+```typescript
+interface Transaction {
+  signature: string;
+  vault: string;
+  destination: string;
+  amount: string;
+  status: string;
+  timestamp: Date;
+  blockReason?: string;
+}
+```
+
+**Example:**
+
+```typescript
+const history = await client.getTransactionHistory({
+  vault: vaultAddress,
+  limit: 100,
+  status: 'executed',
+});
+
+for (const tx of history) {
+  console.log(`${tx.timestamp}: ${tx.amount} to ${tx.destination}`);
+}
+```
+
+---
+
+### getAnalytics
+
+Get spending analytics for a vault.
+
+```typescript
+async getAnalytics(
+  vault: string,
+  options?: AnalyticsOptions
+): Promise<Analytics>
+```
+
+**Parameters:**
+
+```typescript
+interface AnalyticsOptions {
+  startDate?: Date;
+  endDate?: Date;
+  groupBy?: 'day' | 'week' | 'month';
+}
+```
+
+**Returns:**
+
+```typescript
+interface Analytics {
+  totalSpent: string;
+  transactionCount: number;
+  averageAmount: string;
+  topDestinations: Array<{
+    address: string;
+    amount: string;
+    count: number;
+  }>;
+  spendingByPeriod: Array<{
+    period: string;
+    amount: string;
+  }>;
+}
+```
+
+**Example:**
+
+```typescript
+const analytics = await client.getAnalytics(vaultAddress, {
+  startDate: new Date('2024-01-01'),
+  endDate: new Date('2024-12-31'),
+  groupBy: 'month',
+});
+
+console.log('Total Spent:', analytics.totalSpent);
+console.log('Avg Amount:', analytics.averageAmount);
+```
+
+## Utility Functions
+
+### solToLamports
+
+Convert SOL to lamports.
+
+```typescript
+import { solToLamports } from '@aegis-vaults/sdk';
+
+const lamports = solToLamports(1.5);
+// 1_500_000_000
+```
+
+---
+
+### lamportsToSol
+
+Convert lamports to SOL.
+
+```typescript
+import { lamportsToSol } from '@aegis-vaults/sdk';
+
+const sol = lamportsToSol(1_500_000_000);
+// 1.5
+```
+
+---
+
+### formatLamports
+
+Format lamports as readable SOL string.
+
+```typescript
+import { formatLamports } from '@aegis-vaults/sdk';
+
+const formatted = formatLamports(1_500_000_000);
+// "1.5000 SOL"
+```
+
+---
+
+### deriveVaultPda
+
+Derive vault PDA from owner and nonce.
+
+```typescript
+import { deriveVaultPda } from '@aegis-vaults/sdk';
+
+const [vaultPda, bump] = deriveVaultPda(
+  ownerPublicKey,
+  programId,
+  vaultNonce
+);
+```
+
+---
+
+### deriveVaultAuthorityPda
+
+Derive vault authority (deposit address) PDA.
+
+```typescript
+import { deriveVaultAuthorityPda } from '@aegis-vaults/sdk';
+
+const [depositAddress] = deriveVaultAuthorityPda(
+  vaultPda,
+  programId
+);
+```
+
+---
+
+### generateVaultNonce
+
+Generate a random nonce for vault creation.
+
+```typescript
+import { generateVaultNonce } from '@aegis-vaults/sdk';
+
+const nonce = generateVaultNonce();
+// Random u64 string
+```
+
+## Wallet Management
+
+### setWallet
+
+Set the signing wallet for transactions.
+
+```typescript
+client.setWallet(keypair: Keypair): void
+```
+
+**Example:**
+
+```typescript
+import { Keypair } from '@solana/web3.js';
+
+const ownerKeypair = Keypair.fromSecretKey(secretKey);
+client.setWallet(ownerKeypair);
+
+// Now all transactions will be signed by ownerKeypair
+```
+
+## Next Steps
+
+- [Code Examples](/sdk/examples) - See real-world usage
+- [Error Handling](/sdk/error-handling) - Handle errors gracefully
+- [Best Practices](/sdk/best-practices) - Tips for production

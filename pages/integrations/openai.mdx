@@ -1,0 +1,207 @@
+# OpenAI Integration
+
+Give your GPT-4 agent controlled access to Solana funds using Aegis vaults with OpenAI function calling.
+
+## Installation
+
+```bash
+npm install openai @aegis-vaults/sdk @solana/web3.js
+```
+
+## Setup
+
+```typescript
+import OpenAI from 'openai';
+import { AegisClient } from '@aegis-vaults/sdk';
+import { createOpenAITools, executeAegisTool } from '@aegis-vaults/sdk/agents';
+import { Keypair } from '@solana/web3.js';
+
+// Initialize OpenAI
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Initialize Aegis
+const aegis = new AegisClient({
+  cluster: 'devnet',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+
+// Load agent keypair
+const agentKeypair = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(process.env.AGENT_SECRET_KEY!))
+);
+aegis.setWallet(agentKeypair);
+
+// Get Aegis tools for OpenAI
+const tools = createOpenAITools(aegis);
+```
+
+## Available Tools
+
+The SDK provides these function definitions:
+
+| Tool | Description |
+|------|-------------|
+| `aegis_create_vault` | Create a new vault |
+| `aegis_execute_transaction` | Execute agent transaction |
+| `aegis_request_override` | Request manual approval |
+| `aegis_get_vault` | Get vault configuration |
+| `aegis_get_vault_balance` | Get vault balance |
+| `aegis_get_transaction_history` | Get transaction history |
+| `aegis_add_to_whitelist` | Add address to whitelist |
+| `aegis_update_daily_limit` | Update daily limit |
+
+## Complete Example
+
+```typescript
+import OpenAI from 'openai';
+import { AegisClient } from '@aegis-vaults/sdk';
+import { createOpenAITools, executeAegisTool } from '@aegis-vaults/sdk/agents';
+
+const openai = new OpenAI();
+const aegis = new AegisClient({...});
+aegis.setWallet(agentKeypair);
+
+// Get Aegis tool definitions
+const tools = createOpenAITools(aegis);
+
+// Chat completion with tools
+const response = await openai.chat.completions.create({
+  model: 'gpt-4',
+  messages: [
+    {
+      role: 'system',
+      content: 'You are a financial agent with access to an Aegis vault. Use it to send SOL payments when requested. The vault address is stored in VAULT_ADDRESS and vault nonce in VAULT_NONCE environment variables.',
+    },
+    {
+      role: 'user',
+      content: 'Send 0.1 SOL to 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+    },
+  ],
+  tools,
+  tool_choice: 'auto',
+});
+
+// Handle tool calls
+if (response.choices[0].message.tool_calls) {
+  for (const toolCall of response.choices[0].message.tool_calls) {
+    console.log('Tool:', toolCall.function.name);
+    console.log('Arguments:', toolCall.function.arguments);
+
+    // Execute the tool
+    const result = await executeAegisTool(aegis, toolCall);
+
+    console.log('Result:', result);
+  }
+}
+```
+
+## Multi-Turn Conversation
+
+Handle multi-turn conversations with tool results:
+
+```typescript
+const messages = [
+  {
+    role: 'system' as const,
+    content: 'You are a financial agent...',
+  },
+  {
+    role: 'user' as const,
+    content: 'Send 0.1 SOL to 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+  },
+];
+
+while (true) {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4',
+    messages,
+    tools,
+  });
+
+  const message = response.choices[0].message;
+  messages.push(message);
+
+  if (!message.tool_calls) {
+    // No more tool calls - show final response
+    console.log('Assistant:', message.content);
+    break;
+  }
+
+  // Execute all tool calls
+  for (const toolCall of message.tool_calls) {
+    const result = await executeAegisTool(aegis, toolCall);
+
+    // Add tool result to conversation
+    messages.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: JSON.stringify(result),
+    });
+  }
+}
+```
+
+## Error Handling
+
+```typescript
+try {
+  const result = await executeAegisTool(aegis, toolCall);
+
+  if (result.success === false) {
+    if (result.overrideRequested) {
+      // Transaction blocked - inform user
+      console.log('Transaction blocked by policy');
+      console.log('Approve at:', result.blinkUrl);
+
+      // Return to GPT-4
+      return {
+        status: 'pending_approval',
+        message: 'Transaction blocked by vault policy. Vault owner has been notified.',
+        blinkUrl: result.blinkUrl,
+      };
+    }
+  }
+} catch (error) {
+  console.error('Tool execution failed:', error);
+  return {
+    error: error.message,
+  };
+}
+```
+
+## Use Cases
+
+### Financial Assistant
+
+```typescript
+const systemPrompt = `You are a financial assistant with access to a Solana wallet via Aegis vaults.
+
+You can:
+- Send SOL payments to whitelisted addresses
+- Check vault balance
+- View transaction history
+- Request overrides for blocked transactions
+
+Always confirm amounts and addresses with the user before sending payments.
+If a transaction is blocked, explain why and provide the approval link.`;
+```
+
+### Trading Bot
+
+```typescript
+const systemPrompt = `You are an autonomous trading bot with access to a trading vault.
+
+Rules:
+- Only trade on Jupiter, Orca, and Raydium (whitelisted)
+- Never exceed daily trading limit
+- If a large trade is blocked, request override with explanation
+- Always log trade rationale`;
+```
+
+## Next Steps
+
+- [LangChain Integration](/integrations/langchain) - LangChain tools
+- [Anthropic Claude](/integrations/anthropic) - Claude integration
+- [Code Examples](/sdk/examples) - More examples

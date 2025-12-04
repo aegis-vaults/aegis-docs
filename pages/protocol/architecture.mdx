@@ -1,0 +1,99 @@
+# Architecture
+
+System design and data flow of the Aegis Protocol.
+
+## High-Level Architecture
+
+```
+┌─────────────────────┐
+│   Vault Owner       │ (Human)
+│   - Browser Wallet  │
+└──────────┬──────────┘
+           │ Signs vault management
+           ▼
+┌─────────────────────┐
+│   Aegis Protocol    │ (On-chain)
+│   - VaultConfig PDA │
+│   - Policy Engine   │
+│   - Fee Collection  │
+└──────────┬──────────┘
+           ▲
+           │ Signs transactions
+┌──────────┴──────────┐
+│   AI Agent          │ (Autonomous)
+│   - Server Keypair  │
+└─────────────────────┘
+```
+
+## PDA Derivation
+
+### Vault Config PDA
+```
+Seeds: ["vault", authority, nonce]
+Purpose: Stores vault configuration
+```
+
+### Vault Authority PDA
+```
+Seeds: ["vault_authority", vault_pda]
+Purpose: Holds actual SOL (deposit address)
+```
+
+### Override PDA
+```
+Seeds: ["override", vault_pda, override_nonce]
+Purpose: Stores override requests
+```
+
+### Fee Treasury PDA
+```
+Seeds: ["fee_treasury"]
+Purpose: Collects protocol fees
+```
+
+## Transaction Flow
+
+### Successful Transaction
+1. Agent calls `execute_agent`
+2. Protocol verifies agent signer matches `vault.agent_signer`
+3. Check: Is destination whitelisted?
+4. Check: Would exceed daily limit?
+5. Check: Is vault paused?
+6. Calculate fee (0.05%)
+7. Transfer SOL from vault authority to destination
+8. Transfer fee to treasury
+9. Update `vault.spent_today`
+10. Emit `TransactionExecuted` event
+
+### Blocked Transaction (Override Flow)
+1. Agent calls `execute_agent`
+2. Policy check fails (not whitelisted or limit exceeded)
+3. Transaction reverts with error
+4. SDK catches error, calls Guardian API
+5. Guardian stores override request
+6. Guardian generates Blink URL
+7. Owner receives notification
+8. Owner approves via Blink
+9. Transaction executes
+
+## Security Layers
+
+### Layer 1: Account Validation
+- Verify all account ownership
+- Check PDA derivations
+- Validate signer authorities
+
+### Layer 2: Policy Checks
+- Whitelist validation
+- Daily limit enforcement
+- Pause state check
+
+### Layer 3: Arithmetic Safety
+- Checked addition/subtraction
+- Overflow protection
+- Underflow prevention
+
+### Layer 4: Fee Collection
+- Mandatory 0.05% fee
+- Atomic with transfer
+- Cannot be bypassed

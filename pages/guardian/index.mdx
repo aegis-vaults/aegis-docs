@@ -1,0 +1,322 @@
+# Guardian API Overview
+
+Aegis Guardian is the backend service that powers the Aegis ecosystem, providing real-time event monitoring, REST APIs, analytics, and notification delivery.
+
+## What is Guardian?
+
+Guardian is a Next.js 14+ backend service that:
+
+- **Monitors Blockchain Events** - Listens to Solana program logs via WebSocket
+- **Stores Transaction Data** - PostgreSQL database for transaction history
+- **Exposes REST APIs** - CRUD operations for vaults and transactions
+- **Generates Blinks** - Creates Solana Actions for social sharing
+- **Sends Notifications** - Multi-channel alerts for blocked transactions
+- **Provides Analytics** - Spending patterns and vault metrics
+
+## Architecture
+
+```
+┌─────────────────────┐
+│  Aegis Protocol     │  (On-chain)
+│  (Solana Program)   │
+└──────────┬──────────┘
+           │ Events via WebSocket
+           ▼
+┌─────────────────────┐
+│  Aegis Guardian     │  (Backend)
+│  - Event Listener   │
+│  - PostgreSQL       │
+│  - Redis Cache      │
+└──────────┬──────────┘
+           │ REST API + WebSocket
+           ▼
+┌─────────────────────┐
+│  Aegis SDK          │  (Client)
+│  Aegis App          │
+└─────────────────────┘
+```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| **Framework** | Next.js 14+ (App Router) |
+| **Language** | TypeScript (strict mode) |
+| **Database** | PostgreSQL 15+ |
+| **ORM** | Prisma |
+| **Cache** | Redis 7+ |
+| **Background Jobs** | Bull/BullMQ |
+| **Logging** | Pino (structured JSON) |
+| **Validation** | Zod schemas |
+| **Blockchain** | Solana Web3.js |
+
+## Key Features
+
+### Event Monitoring
+
+Guardian listens to all Aegis Protocol events in real-time:
+
+- `VaultCreated` - New vault initialized
+- `TransactionExecuted` - Successful transaction
+- `TransactionBlocked` - Policy violation
+- `OverrideCreated` - Manual approval requested
+- `OverrideApproved` - Owner approved override
+- `PolicyUpdated` - Vault configuration changed
+- `VaultPaused` / `VaultResumed` - Emergency controls
+
+### Data Persistence
+
+All events are stored in PostgreSQL:
+
+```typescript
+// Database Models
+- Vault          // Vault configurations
+- Transaction    // Executed and blocked transactions
+- Override       // Override requests
+- Blink          // Generated Solana Actions
+- Webhook        // Notification subscriptions
+- DailyMetrics   // Aggregated analytics
+```
+
+### REST API
+
+Complete REST API for vault management:
+
+```bash
+# Vaults
+GET    /api/vaults              # List all vaults
+POST   /api/vaults              # Create vault
+GET    /api/vaults/:id          # Get vault details
+PATCH  /api/vaults/:id          # Update vault
+
+# Transactions
+GET    /api/transactions        # List transactions
+GET    /api/transactions/:id    # Get transaction details
+
+# Analytics
+GET    /api/analytics           # Get aggregated metrics
+GET    /api/analytics/realtime  # Real-time metrics
+
+# Blinks (Solana Actions)
+GET    /api/actions/:vault/:nonce          # Get Blink metadata
+POST   /api/actions/:vault/:nonce/approve  # Approve override
+POST   /api/actions/:vault/:nonce/reject   # Reject override
+```
+
+### Caching Strategy
+
+Redis caching for performance:
+
+| Data Type | TTL | Strategy |
+|-----------|-----|----------|
+| Vault Data | 5 minutes | Cache-aside |
+| Transaction Lists | 30 seconds | Cache-aside |
+| Analytics | 5 minutes | Cache-aside |
+| Real-time Metrics | No cache | Direct query |
+
+### Background Jobs
+
+Bull queues for async processing:
+
+- Daily metrics aggregation
+- Webhook delivery with retry
+- Cache cleanup
+- Analytics computation
+- Email notifications
+
+## Production Deployment
+
+**Live API:** https://aegis-guardian-production.up.railway.app
+
+### Health Check
+
+```bash
+curl https://aegis-guardian-production.up.railway.app/api/health
+```
+
+Response:
+
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "redis": "connected",
+  "uptime": 123456
+}
+```
+
+## Environment Variables
+
+Required environment variables:
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/aegis_guardian
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# Solana
+SOLANA_RPC_URL=https://api.devnet.solana.com
+PROGRAM_ID=ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ
+
+# Security
+JWT_SECRET=your_jwt_secret
+WEBHOOK_HMAC_SECRET=your_hmac_secret
+
+# Optional
+NODE_ENV=production
+LOG_LEVEL=info
+```
+
+## Data Models
+
+### Vault
+
+```typescript
+model Vault {
+  id              String   @id @default(uuid())
+  address         String   @unique
+  authority       String
+  agentSigner     String
+  dailyLimit      String
+  name            String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  transactions    Transaction[]
+  overrides       Override[]
+}
+```
+
+### Transaction
+
+```typescript
+model Transaction {
+  id          String   @id @default(uuid())
+  signature   String   @unique
+  vault       Vault    @relation(fields: [vaultId], references: [id])
+  vaultId     String
+  destination String
+  amount      String
+  status      String   // 'executed' | 'blocked' | 'pending'
+  blockReason String?
+  timestamp   DateTime @default(now())
+}
+```
+
+### Override
+
+```typescript
+model Override {
+  id          String   @id @default(uuid())
+  vault       Vault    @relation(fields: [vaultId], references: [id])
+  vaultId     String
+  nonce       String
+  destination String
+  amount      String
+  status      String   // 'pending' | 'approved' | 'rejected' | 'executed'
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  blink       Blink?
+}
+```
+
+## Security
+
+### Rate Limiting
+
+All endpoints are rate-limited:
+
+```typescript
+// 100 requests per minute per IP
+app.use(rateLimit({
+  windowMs: 60 * 1000,
+  max: 100
+}));
+```
+
+### Input Validation
+
+Zod schemas for all inputs:
+
+```typescript
+const createVaultSchema = z.object({
+  name: z.string().min(1).max(50),
+  agentSigner: z.string(),
+  dailyLimit: z.number().positive(),
+});
+```
+
+### HMAC Signatures
+
+Webhook payloads are signed with HMAC:
+
+```typescript
+const signature = crypto
+  .createHmac('sha256', WEBHOOK_SECRET)
+  .update(JSON.stringify(payload))
+  .digest('hex');
+```
+
+## Monitoring
+
+### Structured Logging
+
+JSON logs with Pino:
+
+```json
+{
+  "level": "info",
+  "time": 1234567890,
+  "msg": "Transaction executed",
+  "signature": "5x...",
+  "vault": "7x...",
+  "amount": 10000000
+}
+```
+
+### Metrics
+
+Available via `/api/health`:
+
+- Database connectivity
+- Redis connectivity
+- Service uptime
+- Response times
+- Error rates
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 🔐 Authentication
+    Learn how to authenticate with the API
+    [Authentication →](/guardian/authentication)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 📡 API Endpoints
+    Complete REST API reference
+    [API Reference →](/guardian/endpoints)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🔔 Webhooks
+    Configure webhook notifications
+    [Webhooks →](/guardian/webhooks)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🔗 Blinks
+    Generate Solana Actions
+    [Blinks →](/guardian/blinks)
+  </div>
+</div>
+
+## Resources
+
+- **Live API**: https://aegis-guardian-production.up.railway.app
+- **GitHub**: [aegis-guardian](https://github.com/aegis-vaults/aegis-guardian)
+- **Status Page**: https://status.aegis-vaults.xyz

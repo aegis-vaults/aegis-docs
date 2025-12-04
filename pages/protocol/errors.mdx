@@ -1,0 +1,230 @@
+# Error Codes
+
+Complete reference for all Aegis Protocol error codes.
+
+## Error Code Range
+
+All errors start at **6000** to avoid conflicts with Anchor's built-in errors (0-5999).
+
+## Policy Errors
+
+### NotWhitelisted (6000)
+
+Destination address is not in the vault's whitelist.
+
+**Cause:** Transaction destination not found in `vault.whitelist` array.
+
+**Solution:** Add address to whitelist using `add_to_whitelist` instruction.
+
+---
+
+### DailyLimitExceeded (6001)
+
+Transaction would exceed the vault's daily spending limit.
+
+**Cause:** `vault.spent_today + amount > vault.daily_limit`
+
+**Solutions:**
+- Wait for daily reset (24 hours from last reset)
+- Request override via `create_override`
+- Owner increases daily limit
+
+---
+
+### VaultPaused (6002)
+
+Vault is currently paused and cannot execute transactions.
+
+**Cause:** `vault.paused == true`
+
+**Solution:** Owner must resume vault using `resume_vault` instruction.
+
+## Authorization Errors
+
+### UnauthorizedSigner (6003)
+
+The signer is not authorized to perform this operation.
+
+**Causes:**
+- Agent signer doesn't match `vault.agent_signer`
+- Non-owner attempting owner-only operation
+
+**Solution:** Use correct keypair for the operation.
+
+---
+
+### InvalidAgentSigner (6016)
+
+Agent signer does not match vault's authorized agent.
+
+**Cause:** `agent_signer.key() != vault.agent_signer`
+
+**Solution:** Use the correct agent keypair or update with `update_agent_signer`.
+
+## Override Errors
+
+### OverrideExpired (6004)
+
+Override request has expired and can no longer be executed.
+
+**Cause:** `Clock::get()?.unix_timestamp > override.expires_at`
+
+**Solution:** Create new override request.
+
+---
+
+### OverrideAlreadyExecuted (6005)
+
+Override has already been executed.
+
+**Cause:** `override.executed == true`
+
+**Solution:** This override is complete, create new one if needed.
+
+---
+
+### OverrideAlreadyExists (6014)
+
+Override request already exists for this transaction.
+
+**Cause:** PDA collision for override account.
+
+**Solution:** Use different nonce or wait for existing override to execute/expire.
+
+## Validation Errors
+
+### InvalidDailyLimit (6006)
+
+Daily limit value is invalid.
+
+**Cause:** `daily_limit == 0`
+
+**Solution:** Set daily limit > 0.
+
+---
+
+### InvalidAmount (6009)
+
+Amount is invalid (must be greater than zero).
+
+**Cause:** `amount == 0`
+
+**Solution:** Provide amount > 0.
+
+---
+
+### InvalidPolicy (6010)
+
+Invalid policy parameters.
+
+**Causes:**
+- Name too long (>50 chars)
+- Fee basis points > 1000 (>10%)
+
+**Solution:** Provide valid policy values.
+
+---
+
+### InvalidTimestamp (6007)
+
+Invalid or past timestamp provided.
+
+**Solution:** Use current Unix timestamp.
+
+---
+
+### InvalidAuthority (6015)
+
+Invalid vault authority.
+
+**Cause:** Authority account doesn't match `vault.authority`.
+
+**Solution:** Use correct authority account.
+
+## Balance Errors
+
+### InsufficientFunds (6008)
+
+Vault has insufficient funds for the requested operation.
+
+**Cause:** `vault_authority.lamports() < amount + fee`
+
+**Solution:** Fund vault deposit address.
+
+## Arithmetic Errors
+
+### ArithmeticOverflow (6011)
+
+Arithmetic overflow or underflow occurred.
+
+**Causes:**
+- Addition would overflow u64::MAX
+- Subtraction would underflow (negative)
+
+**Solution:** Use smaller amounts or check calculations.
+
+## Whitelist Errors
+
+### WhitelistFull (6012)
+
+Whitelist is full (maximum 20 addresses allowed).
+
+**Cause:** `vault.whitelist_count >= 20`
+
+**Solution:** Remove unused addresses with `remove_from_whitelist`.
+
+---
+
+### WhitelistNotFound (6013)
+
+Address not found in whitelist.
+
+**Cause:** Attempting to remove address not in whitelist.
+
+**Solution:** Verify address exists in whitelist before removing.
+
+## Error Handling Examples
+
+### TypeScript/SDK
+
+```typescript
+import { AegisError } from '@solana/anchor';
+
+try {
+  await program.methods.executeAgent(vaultNonce, amount).rpc();
+} catch (error) {
+  if (error instanceof AegisError) {
+    if (error.code === 6000) {
+      console.log('Not whitelisted');
+    } else if (error.code === 6001) {
+      console.log('Daily limit exceeded');
+    }
+  }
+}
+```
+
+### Rust
+
+```rust
+use crate::errors::AegisError;
+
+pub fn execute_agent(ctx: Context<ExecuteAgent>, amount: u64) -> Result<()> {
+    require!(
+        ctx.accounts.vault.is_whitelisted(&ctx.accounts.destination.key()),
+        AegisError::NotWhitelisted
+    );
+
+    require!(
+        !ctx.accounts.vault.would_exceed_limit(amount, current_timestamp),
+        AegisError::DailyLimitExceeded
+    );
+
+    Ok(())
+}
+```
+
+## Next Steps
+
+- [Instructions](/protocol/instructions) - All protocol instructions
+- [Security](/protocol/security) - Security model
+- [SDK Error Handling](/sdk/error-handling) - SDK error handling

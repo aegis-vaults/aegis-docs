@@ -1,0 +1,593 @@
+# Best Practices
+
+Production-ready patterns and recommendations for building with the Aegis SDK.
+
+## Client Initialization
+
+### Singleton Pattern
+
+Reuse a single client instance throughout your application:
+
+```typescript
+// ❌ Bad: New client per request
+function sendPayment() {
+  const client = new AegisClient({...});
+  return client.executeAgent({...});
+}
+
+// ✅ Good: Singleton instance
+let aegisClient: AegisClient | null = null;
+
+export function getAegisClient(): AegisClient {
+  if (!aegisClient) {
+    aegisClient = new AegisClient({
+      cluster: process.env.SOLANA_CLUSTER as any,
+      guardianApiUrl: process.env.GUARDIAN_URL!,
+      autoRequestOverride: true,
+      maxRetries: 3,
+    });
+  }
+  return aegisClient;
+}
+```
+
+### Environment-Based Configuration
+
+Use environment variables for configuration:
+
+```typescript
+import 'dotenv/config';
+
+const client = new AegisClient({
+  cluster: (process.env.SOLANA_CLUSTER || 'devnet') as any,
+  guardianApiUrl: process.env.GUARDIAN_URL!,
+  confirmTimeout: parseInt(process.env.CONFIRM_TIMEOUT || '60000'),
+  maxRetries: parseInt(process.env.MAX_RETRIES || '3'),
+});
+```
+
+## Keypair Management
+
+### Secure Storage
+
+Never hardcode private keys. Use environment variables or secret managers:
+
+```typescript
+// ❌ Bad: Hardcoded key
+const agentKeypair = Keypair.fromSecretKey(
+  Uint8Array.from([1, 2, 3, ...]) // DON'T DO THIS
+);
+
+// ✅ Good: From environment
+const agentKeypair = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(process.env.AGENT_SECRET_KEY!))
+);
+
+// ✅ Better: From secure key management service
+import { getSecretFromVault } from './secrets';
+const secretKey = await getSecretFromVault('agent-keypair');
+const agentKeypair = Keypair.fromSecretKey(Uint8Array.from(secretKey));
+```
+
+### Keypair Rotation
+
+Rotate agent keys regularly for security:
+
+```typescript
+async function rotateAgentKey(
+  oldKeypair: Keypair,
+  vaultAddress: string,
+  vaultNonce: string
+) {
+  // Generate new keypair
+  const newKeypair = Keypair.generate();
+
+  // Update on-chain with owner signature
+  const client = new AegisClient({...});
+  client.setWallet(ownerKeypair); // Must use owner
+
+  await client.updateAgentSigner(
+    vaultAddress,
+    vaultNonce,
+    newKeypair.publicKey.toBase58()
+  );
+
+  // Store new keypair securely
+  await storeSecureKey('agent-keypair', newKeypair.secretKey);
+
+  console.log('✅ Agent key rotated');
+  console.log('New public key:', newKeypair.publicKey.toBase58());
+
+  return newKeypair;
+}
+```
+
+## Transaction Execution
+
+### Pre-flight Validation
+
+Always validate before executing transactions:
+
+```typescript
+async function executeTransaction(
+  client: AegisClient,
+  options: ExecuteAgentOptions
+) {
+  // Get vault state
+  const vault = await client.getVault(options.vault);
+
+  // Check if paused
+  if (vault.paused) {
+    throw new Error('Vault is paused');
+  }
+
+  // Check whitelist
+  const isWhitelisted = vault.whitelist
+    .slice(0, vault.whitelistCount)
+    .some(addr => addr.toBase58() === options.destination);
+
+  if (!isWhitelisted) {
+    throw new Error('Destination not whitelisted');
+  }
+
+  // Check balance
+  const balance = await client.getVaultBalance(options.vault);
+  if (balance < options.amount) {
+    throw new Error('Insufficient balance');
+  }
+
+  // Execute
+  return await client.executeAgent(options);
+}
+```
+
+### Error Handling
+
+Handle all error cases explicitly:
+
+```typescript
+import {
+  DailyLimitExceededError,
+  NotWhitelistedError,
+  VaultPausedError,
+  InsufficientBalanceError,
+  UnauthorizedSignerError,
+} from '@aegis-vaults/sdk';
+
+async function safeExecute(client: AegisClient, options: ExecuteAgentOptions) {
+  try {
+    return await client.executeAgent(options);
+
+  } catch (error) {
+    if (error instanceof NotWhitelistedError) {
+      // Handle not whitelisted
+      await requestWhitelist(options.destination);
+      return { status: 'pending_whitelist' };
+
+    } else if (error instanceof DailyLimitExceededError) {
+      // Override flow
+      return {
+        status: 'override_requested',
+        blinkUrl: error.blinkUrl,
+      };
+
+    } else if (error instanceof VaultPausedError) {
+      // Vault paused - notify admin
+      await notifyAdmin('Vault paused');
+      throw error;
+
+    } else if (error instanceof InsufficientBalanceError) {
+      // Low balance - notify owner
+      await notifyOwner('Low vault balance');
+      throw error;
+
+    } else if (error instanceof UnauthorizedSignerError) {
+      // Wrong keypair - critical error
+      console.error('CRITICAL: Unauthorized signer');
+      throw error;
+
+    } else {
+      // Unknown error
+      console.error('Transaction failed:', error);
+      throw error;
+    }
+  }
+}
+```
+
+### Timeout Handling
+
+Set appropriate timeouts for your use case:
+
+```typescript
+// Short timeout for interactive operations
+const interactiveClient = new AegisClient({
+  confirmTimeout: 30000, // 30 seconds
+});
+
+// Longer timeout for batch operations
+const batchClient = new AegisClient({
+  confirmTimeout: 90000, // 90 seconds
+});
+```
+
+## Monitoring and Logging
+
+### Structured Logging
+
+Use structured logging for better debugging:
+
+```typescript
+import pino from 'pino';
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+});
+
+async function executeWithLogging(
+  client: AegisClient,
+  options: ExecuteAgentOptions
+) {
+  const requestId = crypto.randomUUID();
+
+  logger.info({
+    requestId,
+    vault: options.vault,
+    destination: options.destination,
+    amount: options.amount,
+  }, 'Executing transaction');
+
+  try {
+    const signature = await client.executeAgent(options);
+
+    logger.info({
+      requestId,
+      signature,
+    }, 'Transaction successful');
+
+    return signature;
+
+  } catch (error: any) {
+    logger.error({
+      requestId,
+      error: error.message,
+      code: error.code,
+    }, 'Transaction failed');
+
+    throw error;
+  }
+}
+```
+
+### Metrics Collection
+
+Track key metrics:
+
+```typescript
+import { Counter, Histogram } from 'prom-client';
+
+const txCounter = new Counter({
+  name: 'aegis_transactions_total',
+  help: 'Total transactions executed',
+  labelNames: ['status', 'vault'],
+});
+
+const txDuration = new Histogram({
+  name: 'aegis_transaction_duration_seconds',
+  help: 'Transaction execution duration',
+});
+
+async function executeWithMetrics(
+  client: AegisClient,
+  options: ExecuteAgentOptions
+) {
+  const timer = txDuration.startTimer();
+
+  try {
+    const signature = await client.executeAgent(options);
+
+    txCounter.inc({ status: 'success', vault: options.vault });
+    timer();
+
+    return signature;
+
+  } catch (error) {
+    txCounter.inc({ status: 'failed', vault: options.vault });
+    timer();
+
+    throw error;
+  }
+}
+```
+
+## Rate Limiting
+
+### Implement Client-Side Rate Limiting
+
+Prevent overwhelming the RPC or Guardian API:
+
+```typescript
+import pLimit from 'p-limit';
+
+// Limit to 5 concurrent transactions
+const limit = pLimit(5);
+
+async function executeBatchWithLimit(
+  client: AegisClient,
+  transactions: ExecuteAgentOptions[]
+) {
+  const promises = transactions.map(tx =>
+    limit(() => client.executeAgent(tx))
+  );
+
+  return await Promise.allSettled(promises);
+}
+```
+
+### Throttling
+
+Add delays between transactions:
+
+```typescript
+async function executeWithThrottle(
+  client: AegisClient,
+  transactions: ExecuteAgentOptions[],
+  delayMs: number = 1000
+) {
+  const results = [];
+
+  for (const tx of transactions) {
+    results.push(await client.executeAgent(tx));
+
+    // Wait before next transaction
+    if (transactions.indexOf(tx) < transactions.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return results;
+}
+```
+
+## Performance Optimization
+
+### Batch Reads
+
+Use Promise.all for independent reads:
+
+```typescript
+// ✅ Good: Parallel reads
+const [vault, balance, history] = await Promise.all([
+  client.getVault(vaultAddress),
+  client.getVaultBalance(vaultAddress),
+  client.getTransactionHistory({ vault: vaultAddress }),
+]);
+
+// ❌ Bad: Sequential reads
+const vault = await client.getVault(vaultAddress);
+const balance = await client.getVaultBalance(vaultAddress);
+const history = await client.getTransactionHistory({ vault: vaultAddress });
+```
+
+### Caching
+
+Cache frequently accessed data:
+
+```typescript
+class VaultCache {
+  private cache = new Map<string, { data: any; expires: number }>();
+
+  async get<T>(
+    key: string,
+    fetcher: () => Promise<T>,
+    ttlSeconds: number = 60
+  ): Promise<T> {
+    const cached = this.cache.get(key);
+
+    if (cached && cached.expires > Date.now()) {
+      return cached.data as T;
+    }
+
+    const data = await fetcher();
+
+    this.cache.set(key, {
+      data,
+      expires: Date.now() + ttlSeconds * 1000,
+    });
+
+    return data;
+  }
+}
+
+const cache = new VaultCache();
+
+// Use cache
+const vault = await cache.get(
+  `vault:${vaultAddress}`,
+  () => client.getVault(vaultAddress),
+  60 // 60 second TTL
+);
+```
+
+### Custom RPC Endpoint
+
+Use a dedicated RPC for better performance:
+
+```typescript
+import { Connection } from '@solana/web3.js';
+
+// Free public RPC (slow)
+const publicRpc = new Connection('https://api.devnet.solana.com');
+
+// Paid RPC service (fast)
+const dedicatedRpc = new Connection('https://your-rpc.helius.xyz', {
+  commitment: 'confirmed',
+  confirmTransactionInitialTimeout: 60000,
+});
+
+const client = new AegisClient({
+  connection: dedicatedRpc,
+  programId: 'ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ',
+});
+```
+
+## Testing
+
+### Mock Client for Unit Tests
+
+```typescript
+class MockAegisClient {
+  async executeAgent(options: ExecuteAgentOptions): Promise<string> {
+    // Return mock signature
+    return '5'.repeat(88);
+  }
+
+  async getVault(address: string): Promise<VaultConfig> {
+    return {
+      authority: new PublicKey('...'),
+      dailyLimit: new BN(1_000_000_000),
+      // ... mock data
+    };
+  }
+}
+
+// In tests
+const client = new MockAegisClient();
+```
+
+### Integration Tests
+
+Test against devnet:
+
+```typescript
+import { Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
+
+describe('Aegis Integration Tests', () => {
+  let client: AegisClient;
+  let ownerKeypair: Keypair;
+  let agentKeypair: Keypair;
+  let vaultAddress: string;
+  let vaultNonce: string;
+
+  beforeAll(async () => {
+    client = new AegisClient({ cluster: 'devnet' });
+
+    // Generate test keypairs
+    ownerKeypair = Keypair.generate();
+    agentKeypair = Keypair.generate();
+
+    // Airdrop SOL to owner
+    await client.connection.requestAirdrop(
+      ownerKeypair.publicKey,
+      2 * LAMPORTS_PER_SOL
+    );
+
+    // Create vault
+    client.setWallet(ownerKeypair);
+    const vault = await client.createVault({
+      name: 'Test Vault',
+      agentSigner: agentKeypair.publicKey.toBase58(),
+      dailyLimit: LAMPORTS_PER_SOL,
+    });
+
+    vaultAddress = vault.vaultAddress;
+    vaultNonce = vault.nonce;
+
+    // Fund vault
+    await fundVault(vault.depositAddress, LAMPORTS_PER_SOL);
+  });
+
+  test('executes agent transaction', async () => {
+    client.setWallet(agentKeypair);
+
+    const recipient = Keypair.generate().publicKey;
+
+    // Whitelist recipient
+    client.setWallet(ownerKeypair);
+    await client.addToWhitelist(vaultAddress, vaultNonce, recipient.toBase58());
+
+    // Execute as agent
+    client.setWallet(agentKeypair);
+    const signature = await client.executeAgent({
+      vault: vaultAddress,
+      destination: recipient.toBase58(),
+      amount: 10_000_000,
+      vaultNonce,
+    });
+
+    expect(signature).toBeTruthy();
+  });
+});
+```
+
+## Security Checklist
+
+- ✅ Store private keys in environment variables or secret managers
+- ✅ Rotate agent keys periodically
+- ✅ Use separate keypairs for owner and agent
+- ✅ Validate all inputs before transactions
+- ✅ Implement proper error handling
+- ✅ Log all transactions with structured logging
+- ✅ Monitor vault balance and utilization
+- ✅ Set up alerts for low balance and high utilization
+- ✅ Use dedicated RPC endpoints in production
+- ✅ Implement rate limiting
+- ✅ Test on devnet before mainnet
+- ✅ Never commit private keys to version control
+- ✅ Use read-only keys for monitoring
+- ✅ Implement circuit breakers for critical errors
+
+## Production Deployment
+
+### Environment Variables
+
+```bash
+# Required
+SOLANA_CLUSTER=mainnet-beta
+GUARDIAN_URL=https://aegis-guardian-production.up.railway.app
+PROGRAM_ID=ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ
+VAULT_ADDRESS=your_vault_address
+VAULT_NONCE=your_vault_nonce
+AGENT_SECRET_KEY=[...]
+
+# Optional
+RPC_URL=https://your-rpc.helius.xyz
+CONFIRM_TIMEOUT=60000
+MAX_RETRIES=3
+LOG_LEVEL=info
+```
+
+### Health Checks
+
+Implement health checks for monitoring:
+
+```typescript
+async function healthCheck(): Promise<boolean> {
+  try {
+    const client = getAegisClient();
+
+    // Check connection
+    const version = await client.connection.getVersion();
+
+    // Check vault accessibility
+    await client.getVault(process.env.VAULT_ADDRESS!);
+
+    return true;
+  } catch (error) {
+    console.error('Health check failed:', error);
+    return false;
+  }
+}
+
+// Express endpoint
+app.get('/health', async (req, res) => {
+  const healthy = await healthCheck();
+  res.status(healthy ? 200 : 503).json({ healthy });
+});
+```
+
+## Next Steps
+
+- [Error Handling](/sdk/error-handling) - Comprehensive error handling
+- [Code Examples](/sdk/examples) - Real-world usage patterns
+- [Security Guide](/security) - Security best practices

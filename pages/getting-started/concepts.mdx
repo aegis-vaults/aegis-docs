@@ -1,0 +1,353 @@
+# Core Concepts
+
+Understanding these fundamental concepts will help you build effectively with Aegis.
+
+## Two Types of Users
+
+Aegis distinguishes between two distinct roles:
+
+| Role | Description | Signs Transactions With |
+|------|-------------|------------------------|
+| **Vault Owner** | Human who creates and funds vaults, sets policies | Browser wallet (Phantom, Backpack, etc.) |
+| **AI Agent** | AI system that executes transactions autonomously | Server-side keypair |
+
+### Vault Owner Responsibilities
+- Create vaults with initial configuration
+- Fund vault deposit addresses
+- Set and update spending policies
+- Manage whitelist of approved recipients
+- Approve or deny override requests
+- Emergency controls (pause/resume)
+
+### AI Agent Responsibilities
+- Execute transactions within policy limits
+- Handle blocked transaction errors gracefully
+- Respect vault policies (daily limits, whitelist)
+- Maintain security of agent keypair
+
+## Key Addresses
+
+Each vault has **TWO** critical addresses you need to understand:
+
+### Vault Address (Config PDA)
+- **What it is**: A Program Derived Address (PDA) storing vault configuration
+- **What it stores**: Owner, agent signer, daily limit, whitelist, nonce
+- **How to use it**: Pass to all SDK methods as the `vault` parameter
+- **DO NOT**: Send SOL directly to this address
+
+### Deposit Address (Vault Authority)
+- **What it is**: The vault's authority PDA that holds actual SOL
+- **What it stores**: The vault's SOL balance
+- **How to use it**: Send SOL here to fund the vault
+- **This is the actual wallet** that holds funds
+
+```typescript
+// Create a vault
+const result = await client.createVault({...});
+
+console.log('Vault Address:', result.vaultAddress); // Config PDA
+console.log('Deposit Address:', result.depositAddress); // Where you send SOL
+
+// Fund the vault - send SOL to the DEPOSIT address
+const depositAddress = client.getVaultDepositAddress(result.vaultAddress);
+// Send SOL to depositAddress
+```
+
+## Policy Enforcement
+
+Aegis enforces two types of policies on-chain:
+
+### Daily Spending Limit
+- Prevents agents from spending more than X lamports per day
+- Resets 24 hours after the first transaction of the day
+- Checked on-chain before every transaction
+- Can be updated by vault owner
+
+```typescript
+const vault = await client.createVault({
+  dailyLimit: 1_000_000_000, // 1 SOL per day
+  // ...
+});
+
+// Update later if needed
+await client.updatePolicy({
+  vault: vaultAddress,
+  dailyLimit: 2_000_000_000, // 2 SOL per day
+});
+```
+
+### Address Whitelist
+- Only whitelisted addresses can receive funds
+- Maximum 20 addresses per vault
+- Owner can add/remove addresses
+- Checked on-chain before every transaction
+
+```typescript
+// Add to whitelist
+await client.addToWhitelist(
+  vaultAddress,
+  vaultNonce,
+  recipientPublicKey
+);
+
+// Remove from whitelist
+await client.removeFromWhitelist(
+  vaultAddress,
+  vaultNonce,
+  oldRecipientPublicKey
+);
+```
+
+## Transaction Flow
+
+### Normal Flow (Passes Policy)
+
+```
+1. AI Agent calls client.executeAgent()
+2. Aegis Protocol checks:
+   - Is agent_signer authorized?
+   - Is destination whitelisted?
+   - Would this exceed daily limit?
+   - Is vault paused?
+3. ✅ All checks pass
+4. SOL transfers from vault to destination
+5. Daily spent amount updates
+6. Event emitted: TransactionExecuted
+```
+
+### Blocked Flow (Fails Policy)
+
+```
+1. AI Agent calls client.executeAgent()
+2. Aegis Protocol checks policies
+3. ❌ One or more checks fail
+4. Transaction rejected with error
+5. SDK (if autoRequestOverride: true):
+   - Notifies Guardian API
+   - Guardian generates Blink URL
+   - Guardian sends notifications (email, Telegram, Discord)
+6. Vault owner receives notification
+7. Owner clicks Blink URL
+8. Owner approves in wallet
+9. Transaction executes
+```
+
+## Override System
+
+When a transaction is blocked by policy, the override system provides a path for human approval.
+
+### How Overrides Work
+
+1. **Agent attempts blocked transaction**
+   ```typescript
+   try {
+     await client.executeAgent({
+       vault,
+       destination: newAddress, // Not whitelisted!
+       amount: 10_000_000,
+       vaultNonce,
+     });
+   } catch (error) {
+     // error.overrideRequested = true
+     // error.blinkUrl = "https://..."
+   }
+   ```
+
+2. **SDK notifies Guardian** (if `autoRequestOverride: true`)
+   - Guardian stores override request
+   - Guardian generates Blink URL
+   - Guardian sends multi-channel notifications
+
+3. **Owner receives notification** via:
+   - 📧 Email (SendGrid)
+   - 📱 Telegram bot
+   - 💬 Discord webhook
+   - 🔗 Custom webhook
+
+4. **Owner approves via Blink**
+   - Click notification link
+   - Opens Solana Action in wallet
+   - Sign transaction to approve
+   - Override executes immediately
+
+### Blink Structure
+
+Solana Blinks (Blockchain Links) are interactive transaction links that work in wallets and social media.
+
+```
+https://aegis-guardian.../api/actions/{vault}/{nonce}
+```
+
+When clicked:
+1. Wallet fetches action metadata
+2. Shows transaction details to owner
+3. Owner signs single transaction that:
+   - Creates override request on-chain
+   - Approves the override
+   - Executes the transfer
+
+All in one transaction!
+
+## Vault States
+
+Vaults can be in different states:
+
+### Active
+- Normal operation
+- Agents can execute within policy
+- Owner can make changes
+
+### Paused
+- Emergency stop state
+- NO transactions allowed (even within policy)
+- Owner must resume before transactions work
+- Used for security incidents or maintenance
+
+```typescript
+// Pause vault
+await client.pauseVault(vaultAddress, vaultNonce);
+
+// Resume vault
+await client.resumeVault(vaultAddress, vaultNonce);
+```
+
+## Fees
+
+Aegis charges a small protocol fee:
+
+- **Fee Rate**: 0.05% (5 basis points)
+- **Minimum Fee**: 5000 lamports (0.000005 SOL)
+- **Collection**: Deducted from each transaction
+- **Destination**: Protocol treasury PDA
+
+Example:
+```typescript
+// Transfer 1 SOL
+const amount = 1_000_000_000; // 1 SOL in lamports
+const fee = 500_000; // 0.0005 SOL (0.05%)
+
+// Recipient receives: 999,500,000 lamports (0.9995 SOL)
+// Treasury receives: 500,000 lamports (0.0005 SOL)
+```
+
+## Daily Limit Reset
+
+Daily limits reset based on Unix timestamp:
+
+```typescript
+// First transaction of the day
+const firstTx = await client.executeAgent({
+  amount: 100_000_000, // 0.1 SOL
+  // ...
+});
+// vault.lastResetDay = current Unix day
+// vault.spentToday = 100_000_000
+
+// Later that same day
+const secondTx = await client.executeAgent({
+  amount: 50_000_000, // 0.05 SOL
+  // ...
+});
+// vault.lastResetDay = same
+// vault.spentToday = 150_000_000
+
+// Next day (24+ hours later)
+const nextDayTx = await client.executeAgent({
+  amount: 100_000_000, // 0.1 SOL
+  // ...
+});
+// vault.lastResetDay = new Unix day
+// vault.spentToday = 100_000_000 (reset!)
+```
+
+## Program Derived Addresses (PDAs)
+
+Aegis uses several PDAs for different purposes:
+
+### Vault Config PDA
+```
+seeds: [
+  "vault",
+  owner.publicKey,
+  nonce (u64 as bytes)
+]
+```
+
+### Vault Authority PDA (Deposit Address)
+```
+seeds: [
+  "vault_authority",
+  vault_config_pda
+]
+```
+
+### Override Request PDA
+```
+seeds: [
+  "override",
+  vault_config_pda,
+  override_nonce (u64 as bytes)
+]
+```
+
+### Fee Treasury PDA
+```
+seeds: [
+  "fee_treasury"
+]
+```
+
+## Security Model
+
+### On-Chain Guarantees
+- All policy checks happen on-chain (no trusted third party)
+- Agent cannot bypass policies
+- Owner cannot be impersonated
+- Fees cannot be avoided
+
+### Off-Chain Services (Guardian)
+- Event monitoring (read-only)
+- Notification delivery (convenience)
+- Analytics (historical data)
+- Blink generation (URL shortening)
+
+**Important**: Guardian cannot:
+- Execute transactions on your behalf
+- Access your funds
+- Modify on-chain state
+- Bypass policy checks
+
+## Network Support
+
+| Network | Status | Program ID |
+|---------|--------|------------|
+| **Devnet** | ✅ Live | `ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ` |
+| **Mainnet** | 🚧 Coming Soon | TBA |
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 🚀 Quickstart Tutorial
+    Build your first vault in 5 minutes
+    [Get Started →](/getting-started/quickstart)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 📦 Installation Guide
+    Set up the SDK and environment
+    [Install →](/getting-started/installation)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 📚 SDK Documentation
+    Complete API reference
+    [View SDK Docs →](/sdk)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🔧 Protocol Reference
+    Deep dive into smart contract
+    [Protocol Docs →](/protocol)
+  </div>
+</div>

@@ -1,0 +1,98 @@
+# Webhooks
+
+Configure webhook notifications for real-time vault events.
+
+## Overview
+
+Guardian can send HTTP POST requests to your webhook endpoint when events occur, enabling real-time notifications and integrations.
+
+## Supported Events
+
+| Event | Description | Payload |
+|-------|-------------|---------|
+| `transaction.executed` | Transaction successful | Transaction details |
+| `transaction.blocked` | Transaction blocked by policy | Block reason + Blink URL |
+| `override.created` | Override request created | Override details |
+| `override.approved` | Override approved by owner | Approval confirmation |
+| `vault.paused` | Vault paused | Vault address |
+| `vault.resumed` | Vault resumed | Vault address |
+| `policy.updated` | Vault policy changed | New policy values |
+
+## Webhook Registration
+
+### Create Webhook Subscription
+
+```bash
+curl -X POST https://aegis-guardian-production.up.railway.app/api/webhooks \
+  -H "Content-Type: application/json" \
+  -H "X-Wallet-Address: YOUR_PUBKEY" \
+  -H "X-Signature: SIGNATURE" \
+  -H "X-Message: MESSAGE" \
+  -d '{
+    "url": "https://your-server.com/webhooks/aegis",
+    "events": ["transaction.blocked", "override.created"],
+    "vault": "VAULT_ADDRESS"
+  }'
+```
+
+### Webhook Payload Example
+
+```json
+{
+  "event": "transaction.blocked",
+  "timestamp": "2024-12-03T00:00:00.000Z",
+  "data": {
+    "vault": "7xKX...",
+    "destination": "recipient_pubkey",
+    "amount": "50000000",
+    "blockReason": "not_whitelisted",
+    "blinkUrl": "https://aegis-guardian-production.up.railway.app/api/actions/7xKX.../0"
+  },
+  "signature": "hmac_sha256_signature"
+}
+```
+
+## Verifying Webhooks
+
+Verify HMAC signature to ensure webhooks are authentic:
+
+```typescript
+import crypto from 'crypto';
+
+function verifyWebhook(
+  payload: string,
+  signature: string,
+  secret: string
+): boolean {
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+}
+
+// Express webhook handler
+app.post('/webhooks/aegis', (req, res) => {
+  const signature = req.headers['x-aegis-signature'] as string;
+  const payload = JSON.stringify(req.body);
+
+  if (!verifyWebhook(payload, signature, process.env.WEBHOOK_SECRET!)) {
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
+
+  // Process webhook
+  console.log('Event:', req.body.event);
+  console.log('Data:', req.body.data);
+
+  res.json({ received: true });
+});
+```
+
+## Next Steps
+
+- [Blinks](/guardian/blinks) - Learn about Solana Actions
+- [API Endpoints](/guardian/endpoints) - Complete API reference

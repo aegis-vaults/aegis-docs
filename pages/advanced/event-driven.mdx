@@ -1,0 +1,244 @@
+# Event-Driven Architecture
+
+Build reactive systems using Guardian events and WebSockets.
+
+## Guardian Events
+
+Guardian emits events for all on-chain activities:
+
+```typescript
+interface GuardianEvent {
+  type: 'transaction.executed' | 'transaction.blocked' | 'override.created' | 'vault.paused';
+  timestamp: string;
+  data: any;
+}
+```
+
+## WebSocket Connection
+
+Connect to Guardian's WebSocket for real-time events:
+
+```typescript
+import WebSocket from 'ws';
+
+const ws = new WebSocket('wss://aegis-guardian-production.up.railway.app/ws');
+
+ws.on('open', () => {
+  // Subscribe to vault events
+  ws.send(JSON.stringify({
+    action: 'subscribe',
+    vault: vaultAddress,
+  }));
+});
+
+ws.on('message', (data) => {
+  const event = JSON.parse(data.toString());
+  handleEvent(event);
+});
+```
+
+## Event Handlers
+
+### Transaction Executed
+
+```typescript
+async function handleTransactionExecuted(event: GuardianEvent) {
+  const { signature, vault, destination, amount } = event.data;
+
+  // Update internal state
+  await db.transactions.create({
+    data: {
+      signature,
+      vault,
+      destination,
+      amount,
+      status: 'executed',
+      timestamp: new Date(event.timestamp),
+    },
+  });
+
+  // Trigger downstream actions
+  await notifySlack({
+    message: `Transaction executed: ${amount / 1e9} SOL to ${destination}`,
+    signature,
+  });
+
+  // Update analytics
+  await updateSpendingMetrics(vault, amount);
+}
+```
+
+### Transaction Blocked
+
+```typescript
+async function handleTransactionBlocked(event: GuardianEvent) {
+  const { vault, destination, amount, blockReason, blinkUrl } = event.data;
+
+  // Log blocked transaction
+  await db.blockedTransactions.create({
+    data: {
+      vault,
+      destination,
+      amount,
+      blockReason,
+      blinkUrl,
+      timestamp: new Date(event.timestamp),
+    },
+  });
+
+  // Notify owner
+  await sendEmail({
+    to: vaultOwnerEmail,
+    subject: 'Transaction Blocked - Approval Required',
+    body: `
+      Amount: ${amount / 1e9} SOL
+      Destination: ${destination}
+      Reason: ${blockReason}
+
+      Approve: ${blinkUrl}
+    `,
+  });
+
+  // Alert security team for high-value blocks
+  if (amount > 10 * LAMPORTS_PER_SOL) {
+    await alertSecurityTeam(event);
+  }
+}
+```
+
+### Override Created
+
+```typescript
+async function handleOverrideCreated(event: GuardianEvent) {
+  const { vault, nonce, destination, amount } = event.data;
+
+  // Track override request
+  await db.overrides.create({
+    data: {
+      vault,
+      nonce,
+      destination,
+      amount,
+      status: 'pending',
+      createdAt: new Date(event.timestamp),
+    },
+  });
+
+  // Set expiration reminder
+  setTimeout(async () => {
+    const override = await db.overrides.findUnique({
+      where: { vault, nonce },
+    });
+
+    if (override.status === 'pending') {
+      await notifyOwner('Override expiring soon', override);
+    }
+  }, 55 * 60 * 1000); // 55 minutes (expires in 60)
+}
+```
+
+## Event Aggregation
+
+Aggregate events for analytics:
+
+```typescript
+class EventAggregator {
+  private events: GuardianEvent[] = [];
+
+  async processEvents() {
+    setInterval(() => {
+      this.aggregateAndStore();
+    }, 60000); // Every minute
+  }
+
+  private async aggregateAndStore() {
+    const metrics = {
+      timestamp: new Date(),
+      totalTransactions: this.events.filter(e => e.type === 'transaction.executed').length,
+      blockedTransactions: this.events.filter(e => e.type === 'transaction.blocked').length,
+      totalVolume: this.events
+        .filter(e => e.type === 'transaction.executed')
+        .reduce((sum, e) => sum + e.data.amount, 0),
+    };
+
+    await db.metrics.create({ data: metrics });
+
+    this.events = []; // Clear processed events
+  }
+}
+```
+
+## Complex Event Processing
+
+React to patterns across multiple events:
+
+```typescript
+class PatternDetector {
+  private recentEvents: GuardianEvent[] = [];
+
+  detectPatterns() {
+    // Detect rapid blocked transactions
+    const recentBlocked = this.recentEvents
+      .filter(e => e.type === 'transaction.blocked')
+      .filter(e => Date.now() - new Date(e.timestamp).getTime() < 300000); // Last 5 min
+
+    if (recentBlocked.length >= 5) {
+      this.alertSuspiciousActivity('Multiple blocked transactions');
+    }
+
+    // Detect unusual spending patterns
+    const recentTxs = this.recentEvents
+      .filter(e => e.type === 'transaction.executed')
+      .map(e => e.data.amount);
+
+    const avgAmount = recentTxs.reduce((a, b) => a + b, 0) / recentTxs.length;
+    const maxAmount = Math.max(...recentTxs);
+
+    if (maxAmount > avgAmount * 5) {
+      this.alertAnomalousTransaction(maxAmount, avgAmount);
+    }
+  }
+}
+```
+
+## State Machines
+
+Use events to drive state machines:
+
+```typescript
+enum PaymentState {
+  PENDING = 'pending',
+  APPROVED = 'approved',
+  EXECUTED = 'executed',
+  FAILED = 'failed',
+}
+
+class PaymentStateMachine {
+  private state = PaymentState.PENDING;
+
+  handleEvent(event: GuardianEvent) {
+    switch (this.state) {
+      case PaymentState.PENDING:
+        if (event.type === 'override.approved') {
+          this.state = PaymentState.APPROVED;
+        } else if (event.type === 'transaction.blocked') {
+          // Stay pending, waiting for approval
+        }
+        break;
+
+      case PaymentState.APPROVED:
+        if (event.type === 'transaction.executed') {
+          this.state = PaymentState.EXECUTED;
+        }
+        break;
+    }
+
+    this.onStateChange(this.state);
+  }
+}
+```
+
+## Next Steps
+
+- [Performance Optimization](/advanced/performance) - Optimize event processing
+- [Custom Policies](/advanced/custom-policies) - Add custom logic

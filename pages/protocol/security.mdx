@@ -1,0 +1,162 @@
+# Security Model
+
+Security guarantees and best practices for the Aegis Protocol.
+
+## On-Chain Security
+
+### Account Validation
+
+All accounts are verified before execution:
+
+```rust
+// Verify vault authority PDA
+#[account(
+    seeds = [b"vault_authority", vault.key().as_ref()],
+    bump,
+)]
+pub vault_authority: SystemAccount<'info>,
+
+// Verify vault ownership
+#[account(
+    has_one = authority,
+    has_one = agent_signer,
+)]
+pub vault: Account<'info, VaultConfig>,
+```
+
+### Arithmetic Safety
+
+Checked arithmetic prevents overflow:
+
+```rust
+let new_spent = vault.spent_today
+    .checked_add(amount)
+    .ok_or(AegisError::ArithmeticOverflow)?;
+
+let fee = amount
+    .checked_mul(vault.fee_basis_points as u64)
+    .ok_or(AegisError::ArithmeticOverflow)?
+    .checked_div(10000)
+    .ok_or(AegisError::ArithmeticOverflow)?;
+```
+
+### Signer Verification
+
+All signers are verified:
+
+```rust
+// Owner-only operation
+#[account(
+    mut,
+    has_one = authority @ AegisError::UnauthorizedSigner,
+)]
+pub vault: Account<'info, VaultConfig>,
+#[account(mut)]
+pub authority: Signer<'info>,
+
+// Agent operation
+require!(
+    agent_signer.key() == vault.agent_signer,
+    AegisError::InvalidAgentSigner
+);
+```
+
+## Attack Vectors & Mitigations
+
+### 1. Unauthorized Transactions
+
+**Attack:** Malicious actor tries to execute transactions.
+
+**Mitigation:**
+- Agent signer must match `vault.agent_signer`
+- Owner signature required for owner operations
+- All signers verified in instruction constraints
+
+### 2. Draining Vault
+
+**Attack:** Agent tries to exceed limits.
+
+**Mitigation:**
+- Daily limits enforced on-chain
+- Whitelist restricts destinations
+- Vault can be paused by owner
+
+### 3. Fee Bypass
+
+**Attack:** Try to avoid protocol fees.
+
+**Mitigation:**
+- Fee calculation atomic with transfer
+- Fee collection enforced in instruction
+- Cannot be bypassed
+
+### 4. Replay Attacks
+
+**Attack:** Replay old transactions.
+
+**Mitigation:**
+- Solana's recent blockhash prevents replays
+- Nonces ensure unique accounts
+- Timestamps prevent stale overrides
+
+### 5. PDA Collision
+
+**Attack:** Create malicious PDAs.
+
+**Mitigation:**
+- Seeds include authority pubkey
+- Nonces ensure uniqueness
+- Bump seeds verified
+
+## Best Practices
+
+### For Vault Owners
+
+1. **Secure Private Keys** - Never share owner keypair
+2. **Conservative Limits** - Start with low daily limits
+3. **Monitor Activity** - Check transactions regularly
+4. **Use Pause** - Emergency stop if suspicious activity
+5. **Whitelist Carefully** - Only add trusted addresses
+6. **Rotate Agent Keys** - Change agent signer periodically
+
+### For AI Agents
+
+1. **Secure Key Storage** - Use environment variables or secret managers
+2. **Pre-flight Checks** - Validate before attempting transactions
+3. **Handle Errors** - Gracefully handle policy violations
+4. **Respect Limits** - Don't spam transactions when limit reached
+5. **Log Activity** - Track all transaction attempts
+
+### For Integrators
+
+1. **Validate Inputs** - Check all parameters
+2. **Use SDK** - Leverage built-in security
+3. **Test on Devnet** - Thoroughly test before mainnet
+4. **Monitor Events** - Listen to all emitted events
+5. **Rate Limiting** - Prevent DOS attacks
+
+## Security Audits
+
+> Aegis Protocol is currently in beta. Professional security audit coming soon.
+
+### Planned Audits
+
+- [ ] Neodyme (Q1 2025)
+- [ ] OtterSec (Q2 2025)
+- [ ] Bug bounty program
+
+## Responsible Disclosure
+
+Found a security vulnerability?
+
+**Email:** security@aegis-vaults.xyz
+
+**PGP Key:** [Public Key]
+
+**Bounty:** Up to $10,000 for critical vulnerabilities
+
+## Next Steps
+
+- [Protocol Overview](/protocol) - Learn about the protocol
+- [Instructions](/protocol/instructions) - All instructions
+- [Security Best Practices](/security) - User security guide

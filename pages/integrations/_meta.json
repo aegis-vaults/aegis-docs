@@ -1,0 +1,7 @@
+{
+  "index": "Integration Overview",
+  "openai": "OpenAI",
+  "langchain": "LangChain",
+  "anthropic": "Anthropic Claude",
+  "custom": "Custom Frameworks"
+}

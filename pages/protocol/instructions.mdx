@@ -1,0 +1,226 @@
+# Instructions
+
+Complete reference for all Aegis Protocol instructions.
+
+## initialize_vault
+
+Create a new vault configuration.
+
+**Parameters:**
+- `nonce: u64` - Unique vault identifier
+- `agent_signer: Pubkey` - AI agent public key
+- `daily_limit: u64` - Max lamports per day
+- `name: String` - Vault name (max 50 chars)
+
+**Accounts:**
+- `vault` (init) - VaultConfig PDA
+- `vault_authority` (init) - Vault authority PDA
+- `authority` (signer, mut) - Vault owner
+- `system_program` - System program
+
+**Emits:** `VaultCreated`
+
+---
+
+## execute_guarded
+
+Execute owner-signed transaction with policy validation.
+
+**Parameters:**
+- `vault_nonce: u64` - Vault nonce
+- `amount: u64` - Transfer amount
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `vault_authority` (mut) - Vault authority PDA
+- `destination` (mut) - Recipient account
+- `authority` (signer) - Vault owner
+- `fee_treasury` (mut) - Fee collection account
+- `system_program` - System program
+
+**Emits:** `TransactionExecuted` or `TransactionBlocked`
+
+---
+
+## execute_agent
+
+Execute agent-signed transaction with policy validation.
+
+**Parameters:**
+- `vault_nonce: u64` - Vault nonce
+- `amount: u64` - Transfer amount
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `vault_authority` (mut) - Vault authority PDA
+- `destination` (mut) - Recipient account
+- `agent_signer` (signer) - AI agent
+- `fee_treasury` (mut) - Fee collection
+- `system_program` - System program
+
+**Policy Checks:**
+1. Vault not paused
+2. Destination whitelisted
+3. Within daily limit
+4. Agent signer matches vault.agent_signer
+
+**Emits:** `TransactionExecuted` or `TransactionBlocked`
+
+---
+
+## create_override
+
+Create override request for blocked transaction.
+
+**Parameters:**
+- `vault_nonce: u64`
+- `destination: Pubkey`
+- `amount: u64`
+- `reason: BlockReason`
+
+**Accounts:**
+- `override` (init) - PendingOverride PDA
+- `vault` (mut) - VaultConfig PDA
+- `authority` (signer, mut) - Vault owner
+- `system_program` - System program
+
+**Emits:** `OverrideCreated`
+
+---
+
+## approve_override
+
+Approve a pending override request.
+
+**Parameters:**
+- `vault_nonce: u64`
+
+**Accounts:**
+- `override` (mut) - PendingOverride PDA
+- `vault` - VaultConfig PDA
+- `authority` (signer) - Vault owner
+
+**Checks:**
+- Override not expired
+- Not already approved
+- Authority matches vault owner
+
+**Emits:** `OverrideApproved`
+
+---
+
+## execute_approved_override
+
+Execute an approved override transaction.
+
+**Parameters:**
+- `vault_nonce: u64`
+
+**Accounts:**
+- `override` (mut) - PendingOverride PDA
+- `vault` (mut) - VaultConfig PDA
+- `vault_authority` (mut) - Vault authority PDA
+- `destination` (mut) - Recipient account
+- `authority` (signer) - Vault owner
+- `fee_treasury` (mut) - Fee collection
+- `system_program` - System program
+
+**Emits:** `TransactionExecuted`
+
+---
+
+## update_daily_limit
+
+Update vault's daily spending limit.
+
+**Parameters:**
+- `vault_nonce: u64`
+- `new_daily_limit: u64`
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `authority` (signer) - Vault owner
+
+**Emits:** `PolicyUpdated`
+
+---
+
+## add_to_whitelist
+
+Add address to vault whitelist.
+
+**Parameters:**
+- `vault_nonce: u64`
+- `address: Pubkey`
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `authority` (signer) - Vault owner
+
+**Constraints:**
+- Whitelist not full (max 20)
+- Address not already whitelisted
+
+**Emits:** `PolicyUpdated`
+
+---
+
+## remove_from_whitelist
+
+Remove address from whitelist.
+
+**Parameters:**
+- `vault_nonce: u64`
+- `address: Pubkey`
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `authority` (signer) - Vault owner
+
+**Emits:** `PolicyUpdated`
+
+---
+
+## pause_vault
+
+Emergency pause - blocks all transactions.
+
+**Parameters:**
+- `vault_nonce: u64`
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `authority` (signer) - Vault owner
+
+**Emits:** `VaultPaused`
+
+---
+
+## resume_vault
+
+Resume paused vault.
+
+**Parameters:**
+- `vault_nonce: u64`
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `authority` (signer) - Vault owner
+
+**Emits:** `VaultResumed`
+
+---
+
+## update_agent_signer
+
+Rotate agent signer key.
+
+**Parameters:**
+- `vault_nonce: u64`
+- `new_agent_signer: Pubkey`
+
+**Accounts:**
+- `vault` (mut) - VaultConfig PDA
+- `authority` (signer) - Vault owner
+
+**Emits:** `AgentSignerUpdated`

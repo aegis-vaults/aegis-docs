@@ -1,0 +1,64 @@
+# Security Overview
+
+Security best practices for building with Aegis.
+
+## Security Layers
+
+### 1. On-Chain Security
+
+Aegis Protocol enforces security on-chain:
+- **Daily limits** prevent excessive spending
+- **Whitelists** restrict recipient addresses
+- **Pause function** provides emergency stop
+- **Checked arithmetic** prevents overflow
+
+### 2. Key Management
+
+Secure your private keys:
+- Use environment variables
+- Never commit keys to version control
+- Rotate keys regularly
+- Use hardware wallets for high-value vaults
+
+### 3. Network Security
+
+Protect your infrastructure:
+- Use HTTPS for all API calls
+- Implement rate limiting
+- Validate all inputs
+- Monitor for suspicious activity
+
+### 4. Application Security
+
+Build secure applications:
+- Pre-flight validation
+- Error handling
+- Logging and monitoring
+- Circuit breakers
+
+## Quick Checklist
+
+- ✅ Store keys securely
+- ✅ Use daily limits
+- ✅ Whitelist recipients
+- ✅ Monitor transactions
+- ✅ Implement alerting
+- ✅ Test on devnet first
+- ✅ Use dedicated RPC
+- ✅ Enable 2FA where possible
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 🔒 Best Practices
+    Production security guidelines
+    [View Guide →](/security/best-practices)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🔑 Key Management
+    Secure key storage and rotation
+    [View Guide →](/security/key-management)
+  </div>
+</div>

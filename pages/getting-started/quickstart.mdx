@@ -1,0 +1,378 @@
+# Quickstart: Create Your First Vault
+
+This 15-minute tutorial will guide you through creating your first Aegis vault and executing a transaction with your AI agent.
+
+## Prerequisites
+
+- Node.js 18+ installed
+- Basic understanding of TypeScript
+- A Solana wallet (we'll create one for testing)
+- 1-2 SOL on devnet (get from [faucet](https://faucet.solana.com))
+
+## What You'll Build
+
+By the end of this tutorial, you'll have:
+
+1. A funded Aegis vault with spending policies
+2. An AI agent that can execute transactions
+3. Understanding of the override flow when transactions are blocked
+
+## Step 1: Install the SDK
+
+Create a new project and install dependencies:
+
+```bash
+mkdir aegis-quickstart
+cd aegis-quickstart
+npm init -y
+npm install @aegis-vaults/sdk @solana/web3.js @coral-xyz/anchor bn.js typescript tsx
+```
+
+## Step 2: Generate Keypairs
+
+Create a file `generate-keys.ts`:
+
+```typescript
+import { Keypair } from '@solana/web3.js';
+import * as fs from 'fs';
+
+// Generate vault owner keypair
+const ownerKeypair = Keypair.generate();
+console.log('Vault Owner Public Key:', ownerKeypair.publicKey.toBase58());
+console.log('Vault Owner Secret (save this!):', JSON.stringify(Array.from(ownerKeypair.secretKey)));
+
+// Generate AI agent keypair
+const agentKeypair = Keypair.generate();
+console.log('\nAI Agent Public Key:', agentKeypair.publicKey.toBase58());
+console.log('AI Agent Secret (save this!):', JSON.stringify(Array.from(agentKeypair.secretKey)));
+
+// Save to files for convenience
+fs.writeFileSync('owner.json', JSON.stringify(Array.from(ownerKeypair.secretKey)));
+fs.writeFileSync('agent.json', JSON.stringify(Array.from(agentKeypair.secretKey)));
+
+console.log('\nKeypairs saved to owner.json and agent.json');
+```
+
+Run it:
+
+```bash
+npx tsx generate-keys.ts
+```
+
+**Save the output!** You'll need these keys for the next steps.
+
+## Step 3: Fund the Owner Wallet
+
+Use the Solana CLI or web faucet to get devnet SOL:
+
+```bash
+# Using Solana CLI (if installed)
+solana airdrop 2 <OWNER_PUBLIC_KEY> --url devnet
+
+# Or visit: https://faucet.solana.com
+```
+
+## Step 4: Create a Vault
+
+Create `create-vault.ts`:
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair } from '@solana/web3.js';
+import * as fs from 'fs';
+
+async function main() {
+  // Load owner keypair
+  const ownerSecret = JSON.parse(fs.readFileSync('owner.json', 'utf-8'));
+  const ownerKeypair = Keypair.fromSecretKey(Uint8Array.from(ownerSecret));
+
+  // Load agent public key
+  const agentSecret = JSON.parse(fs.readFileSync('agent.json', 'utf-8'));
+  const agentKeypair = Keypair.fromSecretKey(Uint8Array.from(agentSecret));
+
+  // Initialize Aegis client
+  const client = new AegisClient({
+    cluster: 'devnet',
+    guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+  });
+
+  // Set owner as the signer
+  client.setWallet(ownerKeypair);
+
+  console.log('Creating vault...');
+
+  // Create vault with 0.5 SOL daily limit
+  const result = await client.createVault({
+    name: 'My First AI Agent Vault',
+    agentSigner: agentKeypair.publicKey.toBase58(),
+    dailyLimit: 500_000_000, // 0.5 SOL per day
+  });
+
+  console.log('\n✅ Vault created successfully!');
+  console.log('Vault Address:', result.vaultAddress);
+  console.log('Deposit Address:', result.depositAddress);
+  console.log('Vault Nonce:', result.nonce);
+
+  console.log('\n📝 Save these values to .env file:');
+  console.log(`VAULT_ADDRESS=${result.vaultAddress}`);
+  console.log(`VAULT_NONCE=${result.nonce}`);
+  console.log(`DEPOSIT_ADDRESS=${result.depositAddress}`);
+
+  // Save to .env file
+  const envContent = `VAULT_ADDRESS=${result.vaultAddress}
+VAULT_NONCE=${result.nonce}
+DEPOSIT_ADDRESS=${result.depositAddress}
+`;
+  fs.writeFileSync('.env', envContent);
+  console.log('\n✅ Saved to .env file');
+}
+
+main().catch(console.error);
+```
+
+Run it:
+
+```bash
+npx tsx create-vault.ts
+```
+
+## Step 5: Fund the Vault
+
+Send SOL to the **Deposit Address** (not the vault address!):
+
+```bash
+# Using Solana CLI
+solana transfer <DEPOSIT_ADDRESS> 1 --url devnet --keypair owner.json
+
+# Or transfer from your wallet manually
+```
+
+## Step 6: Whitelist a Recipient
+
+Create `setup-policy.ts`:
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair, PublicKey } from '@solana/web3.js';
+import * as fs from 'fs';
+
+async function main() {
+  // Load owner keypair
+  const ownerSecret = JSON.parse(fs.readFileSync('owner.json', 'utf-8'));
+  const ownerKeypair = Keypair.fromSecretKey(Uint8Array.from(ownerSecret));
+
+  // Load vault info
+  const vaultAddress = process.env.VAULT_ADDRESS || '';
+  const vaultNonce = process.env.VAULT_NONCE || '';
+
+  // Initialize client
+  const client = new AegisClient({
+    cluster: 'devnet',
+    guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+  });
+  client.setWallet(ownerKeypair);
+
+  // Example recipient address (replace with real address)
+  const recipient = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
+
+  console.log('Adding recipient to whitelist...');
+
+  await client.addToWhitelist(vaultAddress, vaultNonce, recipient.toBase58());
+
+  console.log('✅ Recipient added to whitelist:', recipient.toBase58());
+
+  // Check vault status
+  const vault = await client.getVault(vaultAddress);
+  console.log('\n📊 Vault Status:');
+  console.log('Daily Limit:', vault.dailyLimit.toString(), 'lamports');
+  console.log('Whitelist Count:', vault.whitelistCount);
+  console.log('Paused:', vault.paused);
+}
+
+main().catch(console.error);
+```
+
+Run it:
+
+```bash
+npx tsx setup-policy.ts
+```
+
+## Step 7: Execute an Agent Transaction
+
+Create `agent-transfer.ts`:
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair, PublicKey } from '@solana/web3.js';
+import * as fs from 'fs';
+
+async function main() {
+  // Load agent keypair
+  const agentSecret = JSON.parse(fs.readFileSync('agent.json', 'utf-8'));
+  const agentKeypair = Keypair.fromSecretKey(Uint8Array.from(agentSecret));
+
+  // Load vault info
+  const vaultAddress = process.env.VAULT_ADDRESS || '';
+  const vaultNonce = process.env.VAULT_NONCE || '';
+
+  // Initialize client with agent wallet
+  const client = new AegisClient({
+    cluster: 'devnet',
+    guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+    autoRequestOverride: true, // Auto-notify Guardian on blocked tx
+  });
+  client.setWallet(agentKeypair);
+
+  // Recipient (must be whitelisted!)
+  const recipient = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
+
+  console.log('Executing agent transaction...');
+  console.log('From Vault:', vaultAddress);
+  console.log('To:', recipient.toBase58());
+  console.log('Amount: 0.01 SOL\n');
+
+  try {
+    const signature = await client.executeAgent({
+      vault: vaultAddress,
+      destination: recipient.toBase58(),
+      amount: 10_000_000, // 0.01 SOL
+      vaultNonce: vaultNonce,
+      purpose: 'Test payment from AI agent',
+    });
+
+    console.log('✅ Transaction successful!');
+    console.log('Signature:', signature);
+    console.log('View on Explorer:', `https://explorer.solana.com/tx/${signature}?cluster=devnet`);
+
+    // Check updated vault status
+    const vault = await client.getVault(vaultAddress);
+    console.log('\n📊 Vault Status After Transaction:');
+    console.log('Spent Today:', vault.spentToday.toString(), 'lamports');
+
+    const balance = await client.getVaultBalance(vaultAddress);
+    console.log('Remaining Balance:', (balance / 1e9).toFixed(4), 'SOL');
+
+  } catch (error: any) {
+    if (error.overrideRequested) {
+      console.log('⏳ Transaction blocked by policy');
+      console.log('📱 Override requested. Vault owner will receive notification.');
+      console.log('🔗 Blink URL:', error.blinkUrl);
+      console.log('\n💡 Vault owner can approve by clicking the Blink URL');
+    } else {
+      console.error('❌ Transaction failed:', error.message);
+    }
+  }
+}
+
+main().catch(console.error);
+```
+
+Run it:
+
+```bash
+npx tsx agent-transfer.ts
+```
+
+## Step 8: Test the Override Flow
+
+Now let's test what happens when a transaction is blocked. Try sending to a non-whitelisted address:
+
+```typescript
+// In agent-transfer.ts, change the recipient to a new address:
+const recipient = Keypair.generate().publicKey; // NOT whitelisted!
+```
+
+Run again:
+
+```bash
+npx tsx agent-transfer.ts
+```
+
+You should see:
+
+```
+⏳ Transaction blocked by policy
+📱 Override requested. Vault owner will receive notification.
+🔗 Blink URL: https://aegis-guardian-production.up.railway.app/api/actions/...
+```
+
+The vault owner would receive this Blink URL via email, Telegram, Discord, or webhook, and can approve it in their wallet.
+
+## What's Happening Behind the Scenes?
+
+When you execute a transaction:
+
+1. **SDK** signs transaction with agent keypair
+2. **Aegis Protocol** (on-chain) checks:
+   - Is agent signer authorized?
+   - Is destination whitelisted?
+   - Would this exceed daily limit?
+   - Is vault paused?
+3. **If PASSES**: Transaction executes, SOL transfers, fees collected
+4. **If BLOCKED**:
+   - SDK notifies Guardian API
+   - Guardian generates Blink URL
+   - Guardian sends multi-channel notifications
+   - Owner approves via Blink
+   - Transaction executes
+
+## Congratulations!
+
+You've successfully:
+
+- ✅ Created an Aegis vault with spending policies
+- ✅ Funded the vault and configured whitelist
+- ✅ Executed agent transactions within policy
+- ✅ Tested the override flow for blocked transactions
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 🤖 AI Framework Integration
+    Add Aegis to your OpenAI or LangChain agent
+    [View Integrations →](/integrations)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 📚 SDK API Reference
+    Explore all available methods
+    [View SDK Docs →](/sdk/api-reference)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🔒 Security Best Practices
+    Learn how to secure your vaults
+    [Security Guide →](/security)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🧪 Build Tutorials
+    Build a trading bot or DeFi agent
+    [View Tutorials →](/tutorials)
+  </div>
+</div>
+
+## Troubleshooting
+
+### "Insufficient balance" error
+Make sure you sent SOL to the **Deposit Address**, not the Vault Address.
+
+```bash
+# Check balance
+solana balance <DEPOSIT_ADDRESS> --url devnet
+```
+
+### "Not whitelisted" error
+The destination address must be added to the whitelist first:
+
+```bash
+npx tsx setup-policy.ts
+```
+
+### "Unauthorized signer" error
+Make sure you're using the correct agent keypair that matches the `agentSigner` set during vault creation.
+
+### Transaction timeout
+Devnet can be slow. If a transaction times out but you see the signature, check the explorer - it likely succeeded.

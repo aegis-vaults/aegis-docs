@@ -1,0 +1,403 @@
+# Installation
+
+Get started with the Aegis SDK in your TypeScript or JavaScript project.
+
+## Prerequisites
+
+- **Node.js** 18+ or 20+ (LTS recommended)
+- **npm**, **yarn**, or **pnpm** package manager
+- Basic knowledge of TypeScript and async/await
+- Familiarity with Solana (helpful but not required)
+
+## Install the SDK
+
+### Using npm
+
+```bash
+npm install @aegis-vaults/sdk @solana/web3.js @coral-xyz/anchor bn.js
+```
+
+### Using yarn
+
+```bash
+yarn add @aegis-vaults/sdk @solana/web3.js @coral-xyz/anchor bn.js
+```
+
+### Using pnpm
+
+```bash
+pnpm add @aegis-vaults/sdk @solana/web3.js @coral-xyz/anchor bn.js
+```
+
+## Dependency Overview
+
+| Package | Purpose | Version |
+|---------|---------|---------|
+| `@aegis-vaults/sdk` | Main Aegis SDK | Latest |
+| `@solana/web3.js` | Solana blockchain interaction | ^1.87.0+ |
+| `@coral-xyz/anchor` | Anchor framework types | ^0.29.0+ |
+| `bn.js` | Big number handling | ^5.2.0+ |
+
+## TypeScript Setup
+
+Aegis SDK is written in TypeScript and includes type definitions. For the best experience, configure your `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules"]
+}
+```
+
+## Environment Variables
+
+Create a `.env` file in your project root:
+
+```bash
+# Solana Network
+SOLANA_CLUSTER=devnet  # or mainnet-beta
+
+# Aegis Configuration
+GUARDIAN_API_URL=https://aegis-guardian-production.up.railway.app
+PROGRAM_ID=ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ
+
+# Vault Configuration (after creating a vault)
+VAULT_ADDRESS=your_vault_address_here
+VAULT_NONCE=your_vault_nonce_here
+DEPOSIT_ADDRESS=your_deposit_address_here
+
+# Agent Keypair (keep secure!)
+AGENT_SECRET_KEY=[1,2,3,...]  # JSON array of bytes
+```
+
+### Loading Environment Variables
+
+Install `dotenv`:
+
+```bash
+npm install dotenv
+```
+
+Load in your code:
+
+```typescript
+import 'dotenv/config';
+
+const vaultAddress = process.env.VAULT_ADDRESS!;
+const vaultNonce = process.env.VAULT_NONCE!;
+```
+
+## Verify Installation
+
+Create a test file `test-install.ts`:
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Connection, clusterApiUrl } from '@solana/web3.js';
+
+async function main() {
+  // Initialize client
+  const client = new AegisClient({
+    cluster: 'devnet',
+    guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+  });
+
+  console.log('✅ Aegis SDK installed successfully!');
+  console.log('Program ID:', client.programId.toBase58());
+
+  // Test connection
+  const connection = new Connection(clusterApiUrl('devnet'));
+  const version = await connection.getVersion();
+  console.log('✅ Connected to Solana:', version['solana-core']);
+}
+
+main().catch(console.error);
+```
+
+Run it:
+
+```bash
+npx tsx test-install.ts
+```
+
+Expected output:
+
+```
+✅ Aegis SDK installed successfully!
+Program ID: ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ
+✅ Connected to Solana: 1.18.x
+```
+
+## Development Tools
+
+### TypeScript Execution
+
+For rapid development, install `tsx`:
+
+```bash
+npm install -D tsx
+```
+
+Run TypeScript files directly:
+
+```bash
+npx tsx your-script.ts
+```
+
+### Code Formatting
+
+Install Prettier for consistent formatting:
+
+```bash
+npm install -D prettier
+```
+
+`.prettierrc`:
+
+```json
+{
+  "semi": true,
+  "singleQuote": true,
+  "tabWidth": 2,
+  "printWidth": 100
+}
+```
+
+### Linting
+
+Install ESLint for code quality:
+
+```bash
+npm install -D eslint @typescript-eslint/parser @typescript-eslint/eslint-plugin
+```
+
+## Network Configuration
+
+### Devnet (Testing)
+
+```typescript
+const client = new AegisClient({
+  cluster: 'devnet',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+```
+
+**Devnet Resources:**
+- RPC: `https://api.devnet.solana.com`
+- Faucet: https://faucet.solana.com
+- Explorer: https://explorer.solana.com/?cluster=devnet
+- Program ID: `ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ`
+
+### Mainnet Beta (Production)
+
+> Aegis is currently in beta. Mainnet deployment coming soon.
+
+```typescript
+const client = new AegisClient({
+  cluster: 'mainnet-beta',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+```
+
+### Custom RPC
+
+For better performance, use a custom RPC endpoint:
+
+```typescript
+import { Connection } from '@solana/web3.js';
+
+const connection = new Connection('https://your-rpc-endpoint.com', 'confirmed');
+
+const client = new AegisClient({
+  connection,
+  programId: 'ET9WDoFE2bf4bSmciLL7q7sKdeSYeNkWbNMHbAMBu2ZJ',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+```
+
+**Recommended RPC Providers:**
+- [Helius](https://helius.dev)
+- [QuickNode](https://quicknode.com)
+- [Alchemy](https://alchemy.com)
+- [Triton](https://triton.one)
+
+## Project Structure
+
+Recommended project structure:
+
+```
+your-project/
+├── src/
+│   ├── client/
+│   │   └── aegis.ts           # Aegis client initialization
+│   ├── agents/
+│   │   └── trading-agent.ts   # Your AI agent logic
+│   ├── utils/
+│   │   └── keypairs.ts        # Keypair management
+│   └── index.ts               # Main entry point
+├── .env                       # Environment variables
+├── .env.example               # Example env file
+├── tsconfig.json              # TypeScript config
+├── package.json
+└── README.md
+```
+
+### Example Client Wrapper
+
+Create `src/client/aegis.ts`:
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair } from '@solana/web3.js';
+import 'dotenv/config';
+
+// Singleton Aegis client
+let client: AegisClient | null = null;
+
+export function getAegisClient(): AegisClient {
+  if (!client) {
+    client = new AegisClient({
+      cluster: (process.env.SOLANA_CLUSTER as any) || 'devnet',
+      guardianApiUrl: process.env.GUARDIAN_API_URL!,
+      autoRequestOverride: true,
+      confirmTimeout: 60000, // 60 seconds
+      maxRetries: 3,
+    });
+
+    // Load agent keypair from environment
+    if (process.env.AGENT_SECRET_KEY) {
+      const secret = JSON.parse(process.env.AGENT_SECRET_KEY);
+      const keypair = Keypair.fromSecretKey(Uint8Array.from(secret));
+      client.setWallet(keypair);
+    }
+  }
+
+  return client;
+}
+
+export function getVaultConfig() {
+  return {
+    address: process.env.VAULT_ADDRESS!,
+    nonce: process.env.VAULT_NONCE!,
+    depositAddress: process.env.DEPOSIT_ADDRESS!,
+  };
+}
+```
+
+Use in your code:
+
+```typescript
+import { getAegisClient, getVaultConfig } from './client/aegis';
+
+const client = getAegisClient();
+const vault = getVaultConfig();
+
+await client.executeAgent({
+  vault: vault.address,
+  destination: recipientAddress,
+  amount: 10_000_000,
+  vaultNonce: vault.nonce,
+});
+```
+
+## AI Framework Integration
+
+### OpenAI
+
+```bash
+npm install openai
+```
+
+```typescript
+import OpenAI from 'openai';
+import { createOpenAITools, executeAegisTool } from '@aegis-vaults/sdk/agents';
+
+const openai = new OpenAI();
+const tools = createOpenAITools(aegisClient);
+```
+
+### LangChain
+
+```bash
+npm install @langchain/core
+```
+
+```typescript
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { AegisClient } from '@aegis-vaults/sdk';
+```
+
+See [Integrations](/integrations) for complete examples.
+
+## Common Issues
+
+### Module Resolution Errors
+
+If you see errors like `Cannot find module '@aegis-vaults/sdk'`:
+
+1. Clear cache: `npm cache clean --force`
+2. Reinstall: `rm -rf node_modules package-lock.json && npm install`
+3. Check `tsconfig.json` has `"moduleResolution": "node"`
+
+### BigInt Support
+
+Aegis uses BigInt for lamport amounts. Ensure your Node.js version is 18+:
+
+```bash
+node --version  # Should be v18.0.0 or higher
+```
+
+### Polyfills (Browser)
+
+For browser environments, you may need polyfills:
+
+```bash
+npm install buffer process
+```
+
+In your entry file:
+
+```typescript
+import { Buffer } from 'buffer';
+window.Buffer = Buffer;
+```
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 🚀 Quickstart Tutorial
+    Create your first vault in 15 minutes
+    [Get Started →](/getting-started/quickstart)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 📚 SDK API Reference
+    Explore all available methods
+    [View API Docs →](/sdk/api-reference)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🤖 AI Integrations
+    Integrate with OpenAI, LangChain, Claude
+    [View Integrations →](/integrations)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 💡 Code Examples
+    See real-world usage patterns
+    [View Examples →](/sdk/examples)
+  </div>
+</div>

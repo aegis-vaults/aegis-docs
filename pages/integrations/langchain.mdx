@@ -1,0 +1,233 @@
+# LangChain Integration
+
+Integrate Aegis vaults with LangChain agents using DynamicStructuredTool.
+
+## Installation
+
+```bash
+npm install @langchain/core @aegis-vaults/sdk @solana/web3.js
+```
+
+## Setup
+
+```typescript
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { z } from 'zod';
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair } from '@solana/web3.js';
+
+// Initialize Aegis
+const aegis = new AegisClient({
+  cluster: 'devnet',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+
+const agentKeypair = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(process.env.AGENT_SECRET_KEY!))
+);
+aegis.setWallet(agentKeypair);
+```
+
+## Create Transfer Tool
+
+```typescript
+const aegisTransferTool = new DynamicStructuredTool({
+  name: 'aegis_transfer',
+  description: 'Transfer SOL from the Aegis vault to a destination address. Use this when the user asks to send SOL or make a payment.',
+  schema: z.object({
+    destination: z.string().describe('Recipient Solana address (base58 string)'),
+    amount_sol: z.number().describe('Amount to send in SOL (e.g., 0.1 for 0.1 SOL)'),
+    purpose: z.string().optional().describe('Optional description of the payment'),
+  }),
+  func: async ({ destination, amount_sol, purpose }) => {
+    try {
+      const signature = await aegis.executeAgent({
+        vault: process.env.VAULT_ADDRESS!,
+        destination,
+        amount: Math.floor(amount_sol * 1e9), // Convert SOL to lamports
+        vaultNonce: process.env.VAULT_NONCE!,
+        purpose,
+      });
+
+      return JSON.stringify({
+        success: true,
+        signature,
+        explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+      });
+    } catch (error: any) {
+      if (error.overrideRequested) {
+        return JSON.stringify({
+          success: false,
+          blocked: true,
+          reason: error.message,
+          message: 'Transaction blocked by vault policy. Vault owner has been notified.',
+          blinkUrl: error.blinkUrl,
+        });
+      }
+
+      return JSON.stringify({
+        success: false,
+        error: error.message,
+      });
+    }
+  },
+});
+```
+
+## Create Balance Tool
+
+```typescript
+const aegisBalanceTool = new DynamicStructuredTool({
+  name: 'aegis_get_balance',
+  description: 'Check the current SOL balance in the Aegis vault',
+  schema: z.object({}),
+  func: async () => {
+    try {
+      const balance = await aegis.getVaultBalance(process.env.VAULT_ADDRESS!);
+      const vault = await aegis.getVault(process.env.VAULT_ADDRESS!);
+
+      return JSON.stringify({
+        balance_sol: balance / 1e9,
+        balance_lamports: balance,
+        daily_limit_sol: vault.dailyLimit.toNumber() / 1e9,
+        spent_today_sol: vault.spentToday.toNumber() / 1e9,
+        remaining_today_sol: (vault.dailyLimit.toNumber() - vault.spentToday.toNumber()) / 1e9,
+      });
+    } catch (error: any) {
+      return JSON.stringify({ error: error.message });
+    }
+  },
+});
+```
+
+## Complete Agent Example
+
+```typescript
+import { ChatOpenAI } from '@langchain/openai';
+import { AgentExecutor, createOpenAIFunctionsAgent } from 'langchain/agents';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
+
+// Initialize LLM
+const llm = new ChatOpenAI({
+  model: 'gpt-4',
+  temperature: 0,
+});
+
+// Create prompt
+const prompt = ChatPromptTemplate.fromMessages([
+  ['system', 'You are a helpful financial assistant with access to a Solana vault via Aegis. You can send SOL payments and check balances. Always confirm transaction details with the user before sending.'],
+  ['placeholder', '{chat_history}'],
+  ['human', '{input}'],
+  ['placeholder', '{agent_scratchpad}'],
+]);
+
+// Create tools array
+const tools = [aegisTransferTool, aegisBalanceTool];
+
+// Create agent
+const agent = await createOpenAIFunctionsAgent({
+  llm,
+  tools,
+  prompt,
+});
+
+// Create executor
+const executor = new AgentExecutor({
+  agent,
+  tools,
+});
+
+// Run agent
+const result = await executor.invoke({
+  input: 'Send 0.1 SOL to 7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU for payment',
+});
+
+console.log(result.output);
+```
+
+## With Memory
+
+Add conversation memory:
+
+```typescript
+import { BufferMemory } from 'langchain/memory';
+
+const memory = new BufferMemory({
+  returnMessages: true,
+  memoryKey: 'chat_history',
+});
+
+const executor = new AgentExecutor({
+  agent,
+  tools,
+  memory,
+});
+
+// Multiple turns
+await executor.invoke({ input: 'What is my vault balance?' });
+await executor.invoke({ input: 'Send 0.05 SOL to Alice' });
+await executor.invoke({ input: 'What is my balance now?' });
+```
+
+## Error Handling
+
+```typescript
+const aegisTransferTool = new DynamicStructuredTool({
+  name: 'aegis_transfer',
+  description: '...',
+  schema: z.object({...}),
+  func: async ({ destination, amount_sol, purpose }) => {
+    try {
+      // Pre-flight check
+      const vault = await aegis.getVault(process.env.VAULT_ADDRESS!);
+
+      if (vault.paused) {
+        return JSON.stringify({
+          success: false,
+          error: 'Vault is currently paused. Cannot execute transactions.',
+        });
+      }
+
+      // Check balance
+      const balance = await aegis.getVaultBalance(process.env.VAULT_ADDRESS!);
+      const amountLamports = Math.floor(amount_sol * 1e9);
+
+      if (balance < amountLamports) {
+        return JSON.stringify({
+          success: false,
+          error: `Insufficient balance. Have ${balance / 1e9} SOL, need ${amount_sol} SOL.`,
+        });
+      }
+
+      // Execute transaction
+      const signature = await aegis.executeAgent({
+        vault: process.env.VAULT_ADDRESS!,
+        destination,
+        amount: amountLamports,
+        vaultNonce: process.env.VAULT_NONCE!,
+        purpose,
+      });
+
+      return JSON.stringify({ success: true, signature });
+
+    } catch (error: any) {
+      if (error.overrideRequested) {
+        return JSON.stringify({
+          success: false,
+          blocked: true,
+          reason: 'Policy violation (not whitelisted or exceeds daily limit)',
+          blinkUrl: error.blinkUrl,
+        });
+      }
+
+      return JSON.stringify({ success: false, error: error.message });
+    }
+  },
+});
+```
+
+## Next Steps
+
+- [OpenAI Integration](/integrations/openai) - OpenAI function calling
+- [Anthropic Claude](/integrations/anthropic) - Claude integration
+- [Tutorials](/tutorials) - Build complete agents

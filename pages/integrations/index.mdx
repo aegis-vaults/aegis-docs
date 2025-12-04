@@ -1,0 +1,80 @@
+# Integration Overview
+
+Aegis provides pre-built integrations for popular AI frameworks, making it easy to give your agents controlled access to on-chain funds.
+
+## Supported Frameworks
+
+| Framework | Status | Package |
+|-----------|--------|---------|
+| **OpenAI** | ✅ Ready | `@aegis-vaults/sdk/agents` |
+| **LangChain** | ✅ Ready | `@aegis-vaults/sdk/agents` |
+| **Anthropic Claude** | ✅ Ready | `@aegis-vaults/sdk/agents` |
+| **Custom** | 📚 Guide Available | DIY |
+
+## Quick Start
+
+### OpenAI Function Calling
+
+```typescript
+import OpenAI from 'openai';
+import { createOpenAITools, executeAegisTool } from '@aegis-vaults/sdk/agents';
+import { AegisClient } from '@aegis-vaults/sdk';
+
+const openai = new OpenAI();
+const aegis = new AegisClient({...});
+aegis.setWallet(agentKeypair);
+
+const tools = createOpenAITools(aegis);
+
+const response = await openai.chat.completions.create({
+  model: 'gpt-4',
+  messages: [...],
+  tools,
+});
+```
+
+### LangChain Tools
+
+```typescript
+import { DynamicStructuredTool } from '@langchain/core/tools';
+import { createLangChainTools } from '@aegis-vaults/sdk/agents';
+
+const tools = createLangChainTools(aegisClient);
+```
+
+### Anthropic Claude
+
+```typescript
+import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicTools } from '@aegis-vaults/sdk/agents';
+
+const tools = createAnthropicTools(aegisClient);
+```
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 🤖 OpenAI
+    Function calling with GPT-4
+    [OpenAI Guide →](/integrations/openai)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🦜 LangChain
+    DynamicStructuredTool integration
+    [LangChain Guide →](/integrations/langchain)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 🧠 Anthropic Claude
+    Tool use with Claude
+    [Claude Guide →](/integrations/anthropic)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### ⚙️ Custom
+    Build your own integration
+    [Custom Guide →](/integrations/custom)
+  </div>
+</div>

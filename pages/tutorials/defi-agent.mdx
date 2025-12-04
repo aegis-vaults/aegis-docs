@@ -1,0 +1,39 @@
+# DeFi Automation Agent
+
+Build an agent that automates DeFi operations like yield farming and rebalancing.
+
+## Overview
+
+This tutorial builds an agent that:
+- Monitors DeFi positions
+- Rebalances portfolios automatically
+- Manages liquidity positions
+- Respects spending limits
+
+## Implementation
+
+```typescript
+class DeFiAgent {
+  async rebalancePortfolio() {
+    const positions = await this.getCurrentPositions();
+    const target = this.getTargetAllocation();
+
+    for (const rebalance of this.calculateRebalances(positions, target)) {
+      await this.aegis.executeAgent({
+        vault: this.vaultAddress,
+        destination: rebalance.protocol,
+        amount: rebalance.amount,
+        vaultNonce: this.vaultNonce,
+        purpose: `Rebalance: ${rebalance.action}`,
+      });
+    }
+  }
+}
+```
+
+## Best Practices
+
+- Monitor gas costs
+- Implement slippage protection
+- Set maximum trade sizes
+- Log all rebalancing actions

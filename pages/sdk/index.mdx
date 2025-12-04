@@ -1,0 +1,350 @@
+# SDK Overview
+
+The Aegis TypeScript SDK provides a developer-friendly interface for integrating Aegis vaults into your applications and AI agents.
+
+## What is the Aegis SDK?
+
+The SDK is a comprehensive TypeScript library that enables:
+
+- **Vault Management**: Create, configure, and manage smart vaults
+- **Transaction Execution**: Execute agent and owner-signed transactions
+- **Policy Control**: Update daily limits and whitelist addresses
+- **Override Handling**: Request and approve blocked transactions
+- **AI Integration**: Drop-in tools for OpenAI, LangChain, and Anthropic Claude
+- **Guardian API**: Access transaction history and analytics
+
+## Key Features
+
+### Type-Safe API
+
+Built with TypeScript for full type safety and IntelliSense support:
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+
+const client = new AegisClient({
+  cluster: 'devnet',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+```
+
+### Automatic Error Handling
+
+Custom error classes with detailed information:
+
+```typescript
+import { DailyLimitExceededError, NotWhitelistedError } from '@aegis-vaults/sdk';
+
+try {
+  await client.executeAgent({...});
+} catch (error) {
+  if (error instanceof DailyLimitExceededError) {
+    console.log('Blink URL:', error.blinkUrl);
+  }
+}
+```
+
+### Transaction Retry Logic
+
+Built-in retry mechanism for failed transactions:
+
+```typescript
+const client = new AegisClient({
+  autoRetry: true,
+  maxRetries: 3,
+  confirmTimeout: 60000,
+});
+```
+
+### Guardian Integration
+
+Seamless integration with Guardian API for notifications:
+
+```typescript
+const client = new AegisClient({
+  autoRequestOverride: true, // Auto-notify on blocked transactions
+});
+```
+
+## Architecture
+
+The SDK consists of several modules:
+
+### Client Module
+
+`AegisClient` - Main entry point providing all functionality:
+
+```typescript
+const client = new AegisClient(config);
+
+// Vault operations
+await client.createVault(options);
+await client.getVault(address);
+
+// Transaction execution
+await client.executeAgent(options);
+await client.executeGuarded(options);
+
+// Policy management
+await client.updatePolicy(options);
+await client.addToWhitelist(vault, nonce, address);
+```
+
+### Agent Module
+
+AI framework integrations:
+
+```typescript
+import { createOpenAITools, executeAegisTool } from '@aegis-vaults/sdk/agents';
+
+// OpenAI function calling
+const tools = createOpenAITools(client);
+
+// LangChain tools
+import { createLangChainTools } from '@aegis-vaults/sdk/agents';
+```
+
+### Guardian Module
+
+API client for Guardian backend:
+
+```typescript
+// Transaction history
+const history = await client.getTransactionHistory({
+  vault: vaultAddress,
+  limit: 50,
+});
+
+// Analytics
+const analytics = await client.getAnalytics(vaultAddress, {
+  startDate: new Date('2024-01-01'),
+  endDate: new Date('2024-12-31'),
+});
+```
+
+### Utils Module
+
+Helper functions for common operations:
+
+```typescript
+import {
+  solToLamports,
+  lamportsToSol,
+  formatLamports,
+  deriveVaultPda,
+  deriveVaultAuthorityPda,
+  generateVaultNonce,
+} from '@aegis-vaults/sdk';
+
+const lamports = solToLamports(1.5); // 1_500_000_000
+const sol = lamportsToSol(lamports); // 1.5
+```
+
+### Error Module
+
+Typed error classes:
+
+```typescript
+import {
+  AegisError,
+  DailyLimitExceededError,
+  NotWhitelistedError,
+  VaultPausedError,
+  InsufficientBalanceError,
+} from '@aegis-vaults/sdk';
+```
+
+## Installation
+
+```bash
+npm install @aegis-vaults/sdk @solana/web3.js @coral-xyz/anchor bn.js
+```
+
+See [Installation Guide](/sdk/installation) for detailed setup instructions.
+
+## Quick Example
+
+```typescript
+import { AegisClient } from '@aegis-vaults/sdk';
+import { Keypair } from '@solana/web3.js';
+
+// Initialize client
+const client = new AegisClient({
+  cluster: 'devnet',
+  guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
+});
+
+// Load agent keypair
+const agentKeypair = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(process.env.AGENT_SECRET_KEY!))
+);
+client.setWallet(agentKeypair);
+
+// Execute transaction
+try {
+  const signature = await client.executeAgent({
+    vault: process.env.VAULT_ADDRESS!,
+    destination: 'RECIPIENT_ADDRESS',
+    amount: 10_000_000, // 0.01 SOL
+    vaultNonce: process.env.VAULT_NONCE!,
+  });
+
+  console.log('✅ Transaction successful:', signature);
+} catch (error: any) {
+  if (error.overrideRequested) {
+    console.log('⏳ Blocked. Blink URL:', error.blinkUrl);
+  }
+}
+```
+
+## Two User Types
+
+The SDK supports two distinct user roles:
+
+### Vault Owner
+
+Human who creates and manages vaults:
+
+```typescript
+import { Keypair } from '@solana/web3.js';
+
+const ownerKeypair = Keypair.fromSecretKey(/* wallet secret */);
+client.setWallet(ownerKeypair);
+
+// Owner operations
+await client.createVault({...});
+await client.updatePolicy({...});
+await client.addToWhitelist(vault, nonce, address);
+await client.pauseVault(vault, nonce);
+```
+
+### AI Agent
+
+Automated system executing transactions:
+
+```typescript
+const agentKeypair = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(process.env.AGENT_SECRET_KEY!))
+);
+client.setWallet(agentKeypair);
+
+// Agent operations
+await client.executeAgent({...});
+await client.getVault(vault);
+await client.getVaultBalance(vault);
+```
+
+## SDK vs Direct Program Interaction
+
+| Feature | SDK | Direct Program |
+|---------|-----|----------------|
+| Type Safety | ✅ Full TypeScript | ❌ Manual types |
+| Error Handling | ✅ Custom errors | ❌ Raw Anchor errors |
+| Guardian Integration | ✅ Built-in | ❌ Manual API calls |
+| Retry Logic | ✅ Automatic | ❌ Manual retry |
+| PDA Derivation | ✅ Automatic | ❌ Manual seeds |
+| Amount Conversion | ✅ Helper utils | ❌ Manual calculation |
+| AI Integrations | ✅ Pre-built tools | ❌ Build from scratch |
+
+## Network Support
+
+| Network | Status | Configuration |
+|---------|--------|---------------|
+| **Devnet** | ✅ Live | `cluster: 'devnet'` |
+| **Mainnet** | 🚧 Coming Soon | `cluster: 'mainnet-beta'` |
+| **Custom RPC** | ✅ Supported | Provide `Connection` instance |
+
+## Performance Considerations
+
+### Connection Pooling
+
+Reuse client instances:
+
+```typescript
+// Good: Single client instance
+const client = new AegisClient({...});
+await client.executeAgent({...});
+await client.executeAgent({...});
+
+// Bad: New client per transaction
+const client1 = new AegisClient({...});
+await client1.executeAgent({...});
+const client2 = new AegisClient({...});
+await client2.executeAgent({...});
+```
+
+### Batch Operations
+
+Use Promise.all for independent operations:
+
+```typescript
+// Parallel execution
+const [vault1, vault2, balance] = await Promise.all([
+  client.getVault(vault1Address),
+  client.getVault(vault2Address),
+  client.getVaultBalance(vault1Address),
+]);
+```
+
+### Caching
+
+Cache vault configurations locally:
+
+```typescript
+let cachedVault: VaultConfig | null = null;
+
+async function getVaultCached() {
+  if (!cachedVault) {
+    cachedVault = await client.getVault(vaultAddress);
+  }
+  return cachedVault;
+}
+```
+
+## Browser Support
+
+The SDK works in browsers with proper polyfills:
+
+```bash
+npm install buffer process
+```
+
+```typescript
+import { Buffer } from 'buffer';
+window.Buffer = Buffer;
+```
+
+## Next Steps
+
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+  <div className="border rounded-lg p-4">
+    ### 📦 Installation
+    Set up the SDK in your project
+    [Install SDK →](/sdk/installation)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 📚 API Reference
+    Complete method documentation
+    [API Reference →](/sdk/api-reference)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### 💡 Code Examples
+    Real-world usage patterns
+    [View Examples →](/sdk/examples)
+  </div>
+
+  <div className="border rounded-lg p-4">
+    ### ⚠️ Error Handling
+    Handle errors gracefully
+    [Error Handling →](/sdk/error-handling)
+  </div>
+</div>
+
+## Resources
+
+- **NPM Package**: [@aegis-vaults/sdk](https://www.npmjs.com/package/@aegis-vaults/sdk)
+- **GitHub**: [aegis-vaults/aegis-sdk](https://github.com/aegis-vaults/aegis-sdk)
+- **TypeDoc**: [API Documentation](https://sdk-docs.aegis-vaults.xyz)
+- **Examples**: [GitHub Examples](https://github.com/aegis-vaults/aegis-sdk/tree/main/examples)

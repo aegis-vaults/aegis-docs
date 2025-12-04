@@ -1,0 +1,633 @@
+# Error Handling
+
+Comprehensive guide to handling errors in the Aegis SDK.
+
+## Error Classes
+
+The SDK provides typed error classes for better error handling:
+
+```typescript
+import {
+  AegisError,                    // Base error class
+  DailyLimitExceededError,       // Daily limit exceeded
+  NotWhitelistedError,           // Address not whitelisted
+  VaultPausedError,              // Vault is paused
+  InsufficientBalanceError,      // Not enough SOL
+  UnauthorizedSignerError,       // Wrong signer
+  MissingWalletError,            // No wallet set
+  NetworkError,                  // Network/RPC error
+  TransactionTimeoutError,       // Transaction timed out
+} from '@aegis-vaults/sdk';
+```
+
+## Policy Errors
+
+These errors indicate a transaction was blocked by vault policy.
+
+### NotWhitelistedError
+
+Thrown when destination address is not in the whitelist.
+
+```typescript
+class NotWhitelistedError extends AegisError {
+  destination: string;           // The blocked address
+  overrideRequested: boolean;    // If override was requested
+  blinkUrl?: string;             // Approval URL (if auto-override enabled)
+}
+```
+
+**Example:**
+
+```typescript
+try {
+  await client.executeAgent({
+    vault: vaultAddress,
+    destination: newAddress, // Not whitelisted!
+    amount: 10_000_000,
+    vaultNonce,
+  });
+} catch (error) {
+  if (error instanceof NotWhitelistedError) {
+    console.log('❌ Address not whitelisted:', error.destination);
+
+    if (error.overrideRequested) {
+      console.log('📱 Approval URL:', error.blinkUrl);
+      // Vault owner can approve via Blink
+    } else {
+      // Request owner to whitelist the address
+      await requestWhitelist(error.destination);
+    }
+  }
+}
+```
+
+---
+
+### DailyLimitExceededError
+
+Thrown when transaction would exceed the daily spending limit.
+
+```typescript
+class DailyLimitExceededError extends AegisError {
+  amount: number;                // Attempted amount
+  dailyLimit: number;            // Vault's daily limit
+  spentToday: number;            // Already spent today
+  remaining: number;             // Remaining limit
+  overrideRequested: boolean;
+  blinkUrl?: string;
+}
+```
+
+**Example:**
+
+```typescript
+try {
+  await client.executeAgent({
+    vault: vaultAddress,
+    destination: recipientAddress,
+    amount: 2_000_000_000, // 2 SOL - exceeds limit!
+    vaultNonce,
+  });
+} catch (error) {
+  if (error instanceof DailyLimitExceededError) {
+    console.log('❌ Daily limit exceeded');
+    console.log('Attempted:', error.amount / 1e9, 'SOL');
+    console.log('Daily Limit:', error.dailyLimit / 1e9, 'SOL');
+    console.log('Spent Today:', error.spentToday / 1e9, 'SOL');
+    console.log('Remaining:', error.remaining / 1e9, 'SOL');
+
+    if (error.overrideRequested) {
+      console.log('📱 Override requested:', error.blinkUrl);
+      // Owner can approve this specific transaction
+    }
+  }
+}
+```
+
+---
+
+### VaultPausedError
+
+Thrown when vault is paused (emergency stop).
+
+```typescript
+class VaultPausedError extends AegisError {
+  vault: string;                 // Vault address
+}
+```
+
+**Example:**
+
+```typescript
+try {
+  await client.executeAgent({...});
+} catch (error) {
+  if (error instanceof VaultPausedError) {
+    console.log('🛑 Vault is paused');
+    console.log('Vault:', error.vault);
+
+    // Notify admin to resume vault
+    await notifyAdmin({
+      type: 'vault_paused',
+      vault: error.vault,
+      message: 'Cannot execute transactions while paused',
+    });
+
+    // Wait or fail gracefully
+    throw new Error('Vault paused - contact vault owner');
+  }
+}
+```
+
+## Balance Errors
+
+### InsufficientBalanceError
+
+Thrown when vault doesn't have enough SOL.
+
+```typescript
+class InsufficientBalanceError extends AegisError {
+  required: number;              // Required amount
+  available: number;             // Current balance
+  shortfall: number;             // Missing amount
+}
+```
+
+**Example:**
+
+```typescript
+try {
+  await client.executeAgent({
+    amount: 5_000_000_000, // 5 SOL
+    // ...
+  });
+} catch (error) {
+  if (error instanceof InsufficientBalanceError) {
+    console.log('❌ Insufficient balance');
+    console.log('Required:', error.required / 1e9, 'SOL');
+    console.log('Available:', error.available / 1e9, 'SOL');
+    console.log('Shortfall:', error.shortfall / 1e9, 'SOL');
+
+    // Notify owner to fund vault
+    await notifyOwner({
+      type: 'low_balance',
+      required: error.required,
+      available: error.available,
+      depositAddress: client.getVaultDepositAddress(vaultAddress),
+    });
+  }
+}
+```
+
+## Authorization Errors
+
+### UnauthorizedSignerError
+
+Thrown when signer doesn't match vault's authorized agent.
+
+```typescript
+class UnauthorizedSignerError extends AegisError {
+  expectedSigner: string;        // Vault's agent_signer
+  actualSigner: string;          // Your keypair
+}
+```
+
+**Example:**
+
+```typescript
+try {
+  await client.executeAgent({...});
+} catch (error) {
+  if (error instanceof UnauthorizedSignerError) {
+    console.log('❌ Unauthorized signer');
+    console.log('Expected:', error.expectedSigner);
+    console.log('Actual:', error.actualSigner);
+
+    // This is a critical error - check your configuration
+    console.error('CRITICAL: Using wrong agent keypair!');
+    process.exit(1);
+  }
+}
+```
+
+---
+
+### MissingWalletError
+
+Thrown when no wallet is set on the client.
+
+```typescript
+class MissingWalletError extends AegisError {}
+```
+
+**Example:**
+
+```typescript
+const client = new AegisClient({...});
+// Forgot to call client.setWallet()
+
+try {
+  await client.executeAgent({...});
+} catch (error) {
+  if (error instanceof MissingWalletError) {
+    console.log('❌ No wallet set');
+
+    // Fix: Set wallet
+    client.setWallet(agentKeypair);
+  }
+}
+```
+
+## Network Errors
+
+### NetworkError
+
+Thrown when RPC or network issues occur.
+
+```typescript
+class NetworkError extends AegisError {
+  originalError: Error;          // Original error from Solana
+}
+```
+
+**Example:**
+
+```typescript
+try {
+  await client.executeAgent({...});
+} catch (error) {
+  if (error instanceof NetworkError) {
+    console.log('❌ Network error:', error.message);
+    console.log('Original:', error.originalError);
+
+    // Retry with exponential backoff
+    await retryWithBackoff(() => client.executeAgent({...}));
+  }
+}
+```
+
+---
+
+### TransactionTimeoutError
+
+Thrown when transaction doesn't confirm within timeout.
+
+```typescript
+class TransactionTimeoutError extends AegisError {
+  signature?: string;            // May have signature even if timed out
+}
+```
+
+**Example:**
+
+```typescript
+try {
+  await client.executeAgent({...});
+} catch (error) {
+  if (error instanceof TransactionTimeoutError) {
+    console.log('⏱️  Transaction timed out');
+
+    if (error.signature) {
+      console.log('Signature:', error.signature);
+      console.log('Check explorer - may have succeeded');
+
+      // Wait and check if transaction actually went through
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      const vault = await client.getVault(vaultAddress);
+      // Check if spent_today increased
+    }
+  }
+}
+```
+
+## Error Handling Patterns
+
+### Comprehensive Try-Catch
+
+Handle all error types:
+
+```typescript
+async function executeTransaction(
+  client: AegisClient,
+  options: ExecuteAgentOptions
+) {
+  try {
+    const signature = await client.executeAgent(options);
+    return { success: true, signature };
+
+  } catch (error) {
+    // Policy errors
+    if (error instanceof NotWhitelistedError) {
+      return {
+        success: false,
+        reason: 'not_whitelisted',
+        destination: error.destination,
+        blinkUrl: error.blinkUrl,
+      };
+    }
+
+    if (error instanceof DailyLimitExceededError) {
+      return {
+        success: false,
+        reason: 'limit_exceeded',
+        remaining: error.remaining,
+        blinkUrl: error.blinkUrl,
+      };
+    }
+
+    if (error instanceof VaultPausedError) {
+      return {
+        success: false,
+        reason: 'vault_paused',
+        vault: error.vault,
+      };
+    }
+
+    // Balance errors
+    if (error instanceof InsufficientBalanceError) {
+      return {
+        success: false,
+        reason: 'insufficient_balance',
+        shortfall: error.shortfall,
+      };
+    }
+
+    // Auth errors
+    if (error instanceof UnauthorizedSignerError) {
+      console.error('CRITICAL: Wrong signer');
+      throw error; // Critical error - rethrow
+    }
+
+    // Network errors
+    if (error instanceof NetworkError) {
+      console.log('Network error, retrying...');
+      // Retry logic
+      return await retryTransaction(client, options);
+    }
+
+    if (error instanceof TransactionTimeoutError) {
+      console.log('Timeout - checking transaction status...');
+      // Check if actually succeeded
+      return await checkTransactionStatus(error.signature);
+    }
+
+    // Unknown error
+    console.error('Unknown error:', error);
+    throw error;
+  }
+}
+```
+
+### Retry Logic
+
+Retry network errors with exponential backoff:
+
+```typescript
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3
+): Promise<T> {
+  let lastError: any;
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      // Don't retry policy errors
+      if (
+        error instanceof NotWhitelistedError ||
+        error instanceof DailyLimitExceededError ||
+        error instanceof VaultPausedError ||
+        error instanceof UnauthorizedSignerError
+      ) {
+        throw error;
+      }
+
+      // Exponential backoff
+      const delay = Math.pow(2, i) * 1000;
+      console.log(`Retry ${i + 1}/${maxRetries} after ${delay}ms`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+// Usage
+const result = await retryWithBackoff(() =>
+  client.executeAgent({...})
+);
+```
+
+### Circuit Breaker
+
+Prevent cascading failures:
+
+```typescript
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailure = 0;
+  private readonly threshold = 5;
+  private readonly resetTimeout = 60000; // 1 minute
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    // Check if circuit is open
+    if (this.failures >= this.threshold) {
+      if (Date.now() - this.lastFailure < this.resetTimeout) {
+        throw new Error('Circuit breaker is open');
+      }
+      // Reset after timeout
+      this.failures = 0;
+    }
+
+    try {
+      const result = await fn();
+      this.failures = 0; // Reset on success
+      return result;
+    } catch (error) {
+      this.failures++;
+      this.lastFailure = Date.now();
+      throw error;
+    }
+  }
+}
+
+const breaker = new CircuitBreaker();
+
+// Usage
+const result = await breaker.execute(() =>
+  client.executeAgent({...})
+);
+```
+
+### Graceful Degradation
+
+Provide fallback behavior:
+
+```typescript
+async function executeWithFallback(
+  client: AegisClient,
+  options: ExecuteAgentOptions
+) {
+  try {
+    // Try primary method
+    return await client.executeAgent(options);
+
+  } catch (error) {
+    if (error instanceof DailyLimitExceededError) {
+      // Fallback: Queue for next day
+      await queueForNextDay(options);
+      return { status: 'queued_for_tomorrow' };
+    }
+
+    if (error instanceof InsufficientBalanceError) {
+      // Fallback: Request funding
+      await requestFunding(error.shortfall);
+      return { status: 'funding_requested' };
+    }
+
+    // No fallback available
+    throw error;
+  }
+}
+```
+
+## Error Logging
+
+### Structured Error Logging
+
+```typescript
+import pino from 'pino';
+
+const logger = pino();
+
+async function executeWithLogging(
+  client: AegisClient,
+  options: ExecuteAgentOptions
+) {
+  try {
+    const signature = await client.executeAgent(options);
+
+    logger.info({
+      event: 'transaction_success',
+      signature,
+      vault: options.vault,
+      destination: options.destination,
+      amount: options.amount,
+    });
+
+    return signature;
+
+  } catch (error: any) {
+    logger.error({
+      event: 'transaction_failed',
+      error: error.message,
+      errorType: error.constructor.name,
+      vault: options.vault,
+      destination: options.destination,
+      amount: options.amount,
+      stack: error.stack,
+    });
+
+    throw error;
+  }
+}
+```
+
+### Error Metrics
+
+Track error rates:
+
+```typescript
+import { Counter } from 'prom-client';
+
+const errorCounter = new Counter({
+  name: 'aegis_errors_total',
+  help: 'Total errors by type',
+  labelNames: ['error_type', 'vault'],
+});
+
+async function executeWithMetrics(
+  client: AegisClient,
+  options: ExecuteAgentOptions
+) {
+  try {
+    return await client.executeAgent(options);
+  } catch (error: any) {
+    errorCounter.inc({
+      error_type: error.constructor.name,
+      vault: options.vault,
+    });
+
+    throw error;
+  }
+}
+```
+
+## Testing Error Cases
+
+### Simulate Errors
+
+```typescript
+describe('Error Handling', () => {
+  it('handles NotWhitelistedError', async () => {
+    const nonWhitelistedAddress = Keypair.generate().publicKey;
+
+    await expect(
+      client.executeAgent({
+        vault: vaultAddress,
+        destination: nonWhitelistedAddress.toBase58(),
+        amount: 10_000_000,
+        vaultNonce,
+      })
+    ).rejects.toThrow(NotWhitelistedError);
+  });
+
+  it('handles DailyLimitExceededError', async () => {
+    const vault = await client.getVault(vaultAddress);
+    const tooMuch = vault.dailyLimit.toNumber() + 1;
+
+    await expect(
+      client.executeAgent({
+        vault: vaultAddress,
+        destination: whitelistedAddress,
+        amount: tooMuch,
+        vaultNonce,
+      })
+    ).rejects.toThrow(DailyLimitExceededError);
+  });
+
+  it('handles VaultPausedError', async () => {
+    // Pause vault
+    client.setWallet(ownerKeypair);
+    await client.pauseVault(vaultAddress, vaultNonce);
+
+    // Try to execute as agent
+    client.setWallet(agentKeypair);
+    await expect(
+      client.executeAgent({...})
+    ).rejects.toThrow(VaultPausedError);
+  });
+});
+```
+
+## Best Practices
+
+1. **Always catch errors** - Don't let errors crash your application
+2. **Use typed errors** - Check `instanceof` for specific handling
+3. **Log errors** - Use structured logging for debugging
+4. **Retry network errors** - Implement exponential backoff
+5. **Don't retry policy errors** - They won't succeed without changes
+6. **Check override URLs** - Present Blink URLs to vault owners
+7. **Monitor error rates** - Track errors in metrics
+8. **Test error cases** - Write tests for each error type
+9. **Provide fallbacks** - Gracefully degrade when possible
+10. **Alert on critical errors** - Notify on-call for UnauthorizedSignerError
+
+## Next Steps
+
+- [Best Practices](/sdk/best-practices) - Production tips
+- [Code Examples](/sdk/examples) - Real-world usage patterns
+- [API Reference](/sdk/api-reference) - Complete method documentation
