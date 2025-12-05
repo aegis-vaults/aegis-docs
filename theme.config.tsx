@@ -32,7 +32,7 @@ const config: DocsThemeConfig = {
     link: 'https://github.com/aegis-vaults',
   },
   chat: {
-    link: 'https://discord.gg/aegis-vaults',
+    link: 'https://discord.gg/WJWTqbAmcy',
   },
   docsRepositoryBase: 'https://github.com/aegis-vaults/aegis-docs',
   footer: {

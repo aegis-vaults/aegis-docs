@@ -148,7 +148,7 @@ Documentation content is extracted from:
 
 ## 📧 Support
 
-- **Discord**: [Join our community](https://discord.gg/aegis-vaults)
+- **Discord**: [Join our community](https://discord.gg/WJWTqbAmcy)
 - **GitHub Issues**: [Report documentation issues](https://github.com/aegis-vaults/aegis-docs/issues)
 - **Twitter**: [@aegis_vaults](https://twitter.com/aegis_vaults)
 
