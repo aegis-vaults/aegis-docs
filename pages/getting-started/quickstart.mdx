@@ -96,8 +96,10 @@ async function main() {
     guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
   });
 
-  // Set owner as the signer
-  client.setWallet(ownerKeypair);
+  // Wrap owner keypair in Wallet and set as signer
+  const { Wallet } = await import('@coral-xyz/anchor');
+  const ownerWallet = new Wallet(ownerKeypair);
+  client.setWallet(ownerWallet);
 
   console.log('Creating vault...');
 
@@ -170,7 +172,11 @@ async function main() {
     cluster: 'devnet',
     guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
   });
-  client.setWallet(ownerKeypair);
+
+  // Wrap keypair in Wallet before passing to client
+  const { Wallet } = await import('@coral-xyz/anchor');
+  const ownerWallet = new Wallet(ownerKeypair);
+  client.setWallet(ownerWallet);
 
   // Example recipient address (replace with real address)
   const recipient = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
@@ -222,7 +228,11 @@ async function main() {
     guardianApiUrl: 'https://aegis-guardian-production.up.railway.app',
     autoRequestOverride: true, // Auto-notify Guardian on blocked tx
   });
-  client.setWallet(agentKeypair);
+
+  // Wrap agent keypair in Wallet before passing to client
+  const { Wallet } = await import('@coral-xyz/anchor');
+  const agentWallet = new Wallet(agentKeypair);
+  client.setWallet(agentWallet);
 
   // Recipient (must be whitelisted!)
   const recipient = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');

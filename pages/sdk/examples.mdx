@@ -19,7 +19,11 @@ async function setupVault() {
 
   // Load owner wallet
   const ownerKeypair = Keypair.fromSecretKey(/* secret key */);
-  client.setWallet(ownerKeypair);
+
+  // Wrap keypair in Wallet before passing to client
+  const { Wallet } = await import('@coral-xyz/anchor');
+  const ownerWallet = new Wallet(ownerKeypair);
+  client.setWallet(ownerWallet);
 
   // Generate agent keypair
   const agentKeypair = Keypair.generate();
@@ -62,9 +66,13 @@ async function setupVault() {
 ### Configure Vault Policies
 
 ```typescript
-async function configureVault(vaultAddress: string, vaultNonce: string) {
+async function configureVault(vaultAddress: string, vaultNonce: string, ownerKeypair: Keypair) {
   const client = new AegisClient({ cluster: 'devnet' });
-  client.setWallet(ownerKeypair);
+
+  // Wrap keypair in Wallet before passing to client
+  const { Wallet } = await import('@coral-xyz/anchor');
+  const ownerWallet = new Wallet(ownerKeypair);
+  client.setWallet(ownerWallet);
 
   // Add recipients to whitelist
   const recipients = [
@@ -109,7 +117,10 @@ class PaymentAgent {
       autoRequestOverride: true,
     });
 
-    this.client.setWallet(agentKeypair);
+    // Wrap agent keypair in Wallet before passing to client
+    const { Wallet } = require('@coral-xyz/anchor');
+    const agentWallet = new Wallet(agentKeypair);
+    this.client.setWallet(agentWallet);
     this.vaultAddress = process.env.VAULT_ADDRESS!;
     this.vaultNonce = process.env.VAULT_NONCE!;
   }
