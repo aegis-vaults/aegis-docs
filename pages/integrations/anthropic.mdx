@@ -132,7 +132,7 @@ const messages: any[] = [
 
 while (true) {
   const response = await anthropic.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'claude-3-5-sonnet-20251022',
     max_tokens: 1024,
     system: 'You are a financial assistant with access to a Solana vault via Aegis. You can send SOL payments and check balances.',
     messages,
@@ -175,7 +175,7 @@ while (true) {
 
 ```typescript
 const stream = await anthropic.messages.stream({
-  model: 'claude-3-5-sonnet-20241022',
+  model: 'claude-3-5-sonnet-20251022',
   max_tokens: 1024,
   messages,
   tools,

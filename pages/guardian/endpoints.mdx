@@ -22,7 +22,7 @@ Check service health and connectivity.
   "database": "connected",
   "redis": "connected",
   "uptime": 123456,
-  "timestamp": "2024-12-03T00:00:00.000Z"
+  "timestamp": "2025-12-03T00:00:00.000Z"
 }
 ```
 
@@ -58,7 +58,7 @@ curl "https://aegis-guardian-production.up.railway.app/api/vaults?page=1&limit=2
       "agentSigner": "agent_pubkey",
       "dailyLimit": "1000000000",
       "name": "My Vault",
-      "createdAt": "2024-01-01T00:00:00.000Z",
+      "createdAt": "2025-01-01T00:00:00.000Z",
       "transactionCount": 42,
       "totalVolume": "50000000000"
     }
@@ -98,12 +98,12 @@ curl "https://aegis-guardian-production.up.railway.app/api/vaults/7xKX..."
   "agentSigner": "agent_pubkey",
   "dailyLimit": "1000000000",
   "spentToday": "250000000",
-  "lastReset": "2024-12-03T00:00:00.000Z",
+  "lastReset": "2025-12-03T00:00:00.000Z",
   "name": "My Vault",
   "paused": false,
   "whitelistCount": 5,
-  "createdAt": "2024-01-01T00:00:00.000Z",
-  "updatedAt": "2024-12-03T00:00:00.000Z",
+  "createdAt": "2025-01-01T00:00:00.000Z",
+  "updatedAt": "2025-12-03T00:00:00.000Z",
   "stats": {
     "transactionCount": 42,
     "totalVolume": "50000000000",
@@ -147,7 +147,7 @@ curl "https://aegis-guardian-production.up.railway.app/api/transactions?vault=7x
       "amount": "10000000",
       "status": "executed",
       "blockReason": null,
-      "timestamp": "2024-12-03T00:00:00.000Z",
+      "timestamp": "2025-12-03T00:00:00.000Z",
       "feeCollected": "500"
     },
     {
@@ -158,7 +158,7 @@ curl "https://aegis-guardian-production.up.railway.app/api/transactions?vault=7x
       "amount": "50000000",
       "status": "blocked",
       "blockReason": "not_whitelisted",
-      "timestamp": "2024-12-02T00:00:00.000Z",
+      "timestamp": "2025-12-02T00:00:00.000Z",
       "blinkUrl": "https://..."
     }
   ],
@@ -199,7 +199,7 @@ curl "https://aegis-guardian-production.up.railway.app/api/transactions/5x..."
   "status": "executed",
   "blockReason": null,
   "feeCollected": "500",
-  "timestamp": "2024-12-03T00:00:00.000Z",
+  "timestamp": "2025-12-03T00:00:00.000Z",
   "explorerUrl": "https://explorer.solana.com/tx/5x...?cluster=devnet"
 }
 ```
@@ -222,7 +222,7 @@ Get aggregated vault metrics.
 **Example:**
 
 ```bash
-curl "https://aegis-guardian-production.up.railway.app/api/analytics?vault=7xKX...&startDate=2024-01-01&endDate=2024-12-31&groupBy=month"
+curl "https://aegis-guardian-production.up.railway.app/api/analytics?vault=7xKX...&startDate=2025-01-01&endDate=2025-12-31&groupBy=month"
 ```
 
 **Response:**
@@ -231,8 +231,8 @@ curl "https://aegis-guardian-production.up.railway.app/api/analytics?vault=7xKX.
 {
   "vault": "7xKX...",
   "period": {
-    "start": "2024-01-01T00:00:00.000Z",
-    "end": "2024-12-31T23:59:59.999Z"
+    "start": "2025-01-01T00:00:00.000Z",
+    "end": "2025-12-31T23:59:59.999Z"
   },
   "summary": {
     "totalSpent": "50000000000",
@@ -255,12 +255,12 @@ curl "https://aegis-guardian-production.up.railway.app/api/analytics?vault=7xKX.
   ],
   "spendingByPeriod": [
     {
-      "period": "2024-01",
+      "period": "2025-01",
       "amount": "5000000000",
       "count": 5
     },
     {
-      "period": "2024-02",
+      "period": "2025-02",
       "amount": "8000000000",
       "count": 8
     }
@@ -291,13 +291,13 @@ curl "https://aegis-guardian-production.up.railway.app/api/analytics/realtime?va
 ```json
 {
   "vault": "7xKX...",
-  "timestamp": "2024-12-03T00:00:00.000Z",
+  "timestamp": "2025-12-03T00:00:00.000Z",
   "balance": "990000000",
   "spentToday": "250000000",
   "dailyLimit": "1000000000",
   "utilizationPct": 25.0,
   "transactionsToday": 3,
-  "lastTransaction": "2024-12-03T00:00:00.000Z"
+  "lastTransaction": "2025-12-03T00:00:00.000Z"
 }
 ```
 
