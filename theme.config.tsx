@@ -98,7 +98,7 @@ const config: DocsThemeConfig = {
         gap: '8px',
         fontWeight: 500,
       }}>
-        🚀 Aegis is now live on Solana Mainnet →
+        🚀 Aegis is now live on Solana Devnet →
       </a>
     ),
   },
